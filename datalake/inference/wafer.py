@@ -54,9 +54,13 @@ class WaferClient:
             ],
             "temperature": temperature,
             "max_tokens": 2500,
+            # Qwen 3.5 defaults to thinking mode (chain-of-thought in `reasoning_content`).
+            # That eats the token budget before any answer comes out. Disable it for our
+            # structured-JSON workload. See discovery log: only `chat_template_kwargs:
+            # {enable_thinking: false}` or `reasoning_effort: "none"` actually toggle it on Wafer.
+            "chat_template_kwargs": {"enable_thinking": False},
         }
         if json_schema is not None:
-            # Always request JSON-mode; structured-schema strictness is opt-in by provider.
             body["response_format"] = {"type": "json_object"}
 
         headers = {
@@ -78,10 +82,15 @@ class WaferClient:
                     data = await resp.json(content_type=None)
             latency_ms = int((time.perf_counter() - t0) * 1000)
 
-        content = data["choices"][0]["message"]["content"]
-        usage = data.get("usage", {})
-        tokens_in = int(usage.get("prompt_tokens", max(1, len(user) // 4)))
-        tokens_out = int(usage.get("completion_tokens", max(1, len(content) // 4)))
+        # Some Wafer responses return null/missing content (e.g., under load). Treat as
+        # empty string so the downstream pydantic-validation triggers the repair retry
+        # path in the wrapper instead of crashing here.
+        choices = data.get("choices") or []
+        msg = choices[0].get("message", {}) if choices else {}
+        content = msg.get("content") or ""
+        usage = data.get("usage") or {}
+        tokens_in = int(usage.get("prompt_tokens") or max(1, len(user) // 4))
+        tokens_out = int(usage.get("completion_tokens") or max(1, len(content) // 4))
         return CallResult(
             response_text=content,
             tokens_in=tokens_in,

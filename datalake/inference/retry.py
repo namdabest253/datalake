@@ -32,6 +32,22 @@ def backoff_delay(attempt: int) -> float:
     return min(60.0, 0.5 * 2**attempt + random.random() * 0.3)
 
 
+def _strip_code_fence(text: str) -> str:
+    """Qwen non-thinking mode wraps JSON in ```json ... ``` fences. Strip them."""
+    t = text.strip()
+    if not t.startswith("```"):
+        return t
+    # Drop opening fence line (```json or ```).
+    if "\n" in t:
+        t = t.split("\n", 1)[1]
+    else:
+        t = t[3:]
+    # Drop trailing fence.
+    if t.rstrip().endswith("```"):
+        t = t.rstrip()[:-3]
+    return t.strip()
+
+
 async def call_pass(
     client: InferenceClient,
     *,
@@ -91,7 +107,7 @@ async def call_pass(
     parsed: BaseModel | None = None
     if schema_model is not None:
         try:
-            parsed = schema_model.model_validate_json(result.response_text)
+            parsed = schema_model.model_validate_json(_strip_code_fence(result.response_text))
         except (json.JSONDecodeError, ValidationError, ValueError):
             repair_user = (
                 f"{user}\n\n"
@@ -108,7 +124,7 @@ async def call_pass(
                 timeout=timeout,
             )
             # If this raises, propagate — caller treats as pass failure.
-            parsed = schema_model.model_validate_json(repair_result.response_text)
+            parsed = schema_model.model_validate_json(_strip_code_fence(repair_result.response_text))
             result = repair_result.model_copy(update={"retried": True})
 
     # Persist the inference_calls row (cost_basis='actual').

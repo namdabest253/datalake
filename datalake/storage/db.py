@@ -225,7 +225,16 @@ async def update_dashboard_counters_on_doc_done(
     partial: bool = False,
     failed: bool = False,
 ) -> None:
-    """Increment counters + cost totals; running-mean confidence on success."""
+    """Increment counters + cost totals; running-mean confidence on success.
+
+    Self-healing: seeds a zero-valued counter row if one doesn't already exist for
+    this run_id (e.g., when insert_run was called by an older code path that
+    didn't seed it). All counter UPDATEs below then target an existing row.
+    """
+    await conn.execute(
+        "INSERT OR IGNORE INTO dashboard_counters (run_id, updated_at) VALUES (?, ?)",
+        (run_id, time.time()),
+    )
     costs = (doc_wafer_micro_usd, doc_gpt4_micro_usd, doc_human_labeler_micro_usd)
     if failed:
         await _bump_counter(conn, run_id, "docs_failed", costs)

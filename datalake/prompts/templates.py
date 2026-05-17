@@ -30,7 +30,7 @@ class CatalogFields(BaseModel):
     content_type_confidence: float = Field(ge=0, le=1)
     ownership: Ownership
     ownership_confidence: float = Field(ge=0, le=1)
-    ownership_rationale: str = Field(max_length=300)
+    ownership_rationale: str = Field(max_length=800)
     compliance_flags: list[ComplianceFlag]
     commercial_score: int = Field(ge=0, le=100)
     commercial_action: CommercialAction
@@ -40,7 +40,7 @@ class LabelFields(BaseModel):
     structured_abstract: dict[Literal["problem", "approach", "findings", "limitations"], str]
     methodology_named: list[str]  # subset of METHODOLOGY_NAMED
     methodology_other_freetext: str | None = None
-    novelty_claim: str = Field(max_length=500)
+    novelty_claim: str = Field(max_length=1200)
     evidence_type: Literal["empirical", "theoretical", "simulation", "survey", "mixed"]
     evidence_strength: Literal["weak", "moderate", "strong"]
     sample_size: int | None = None
@@ -58,30 +58,32 @@ class ProposalRecord(BaseModel):
 class FieldCritique(BaseModel):
     field_path: str
     issue: Literal["too_vague", "wrong", "missing_evidence", "contradicted_by_source", "ok"]
-    suggestion: str | None = None
+    # Model sometimes returns a list of suggestions or even structured values; accept anything
+    # JSON-serializable and store as-is so we don't reject otherwise-useful critiques.
+    suggestion: str | list | dict | None = None
 
 
 class Critique(BaseModel):
     proposal_idx: int
     field_critiques: list[FieldCritique]
     overall_assessment: Literal["accept", "revise", "reject"]
-    rationale: str = Field(max_length=300)
+    rationale: str = Field(max_length=1000)
 
 
 class RefinedRecord(ProposalRecord):
-    revision_summary: str = Field(max_length=300)
+    revision_summary: str = Field(max_length=1000)
 
 
 class VoteResult(BaseModel):
     winner_idx: int
     winner_confidence: float = Field(ge=0, le=1)
-    rationale: str = Field(max_length=300)
+    rationale: str = Field(max_length=1000)
     runners_up: list[int] = Field(default_factory=list)
 
 
 class EnrichedPayload(BaseModel):
-    expanded_abstract: str = Field(max_length=2000)
-    novelty_rationale: str = Field(max_length=800)
+    expanded_abstract: str = Field(max_length=4000)
+    novelty_rationale: str = Field(max_length=1500)
     citation_context: list[dict]
     claim_graph_v2: list[dict]
     derived_keywords: list[str]
@@ -108,7 +110,7 @@ class JudgeOutput(BaseModel):
     winner: Literal["A", "B", "tie"]
     a_scores: DimensionScore
     b_scores: DimensionScore
-    rationale: str = Field(max_length=500)
+    rationale: str = Field(max_length=1000)
 
 
 # ---------------------------------------------------------------------------

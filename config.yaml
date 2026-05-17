@@ -1,19 +1,18 @@
 # Datalake runtime configuration.
 # Overridden by environment variables; overridden again by CLI flags.
 # See docs/05-inference-client.md and docs/08-ops-and-demo.md for field semantics.
+#
+# Deployment-specific values (wafer_base_url, wafer_loop_model, judge_model,
+# openai_baseline_model) live in .env and are loaded via pydantic-settings.
+# Keep this file for tuning knobs only.
 
-wafer_base_url: https://api.wafer.ai/v1
-wafer_loop_model: qwen-3.5-397b
-judge_model: qwen-3.5-strong
-openai_baseline_model: gpt-4-turbo
-
-wafer_concurrency: 64
+wafer_concurrency: 1    # Wafer tier allows only 1 in-flight call — serializes all loop calls
 openai_concurrency: 8
-judge_concurrency: 4
-per_doc_concurrency: 8
+judge_concurrency: 1    # Same constraint — judge is also a Wafer model
+per_doc_concurrency: 8  # In-doc still bounded; serialization comes from the wafer gate above
 
-n_proposers: 3
-per_doc_budget_seconds: 30
+n_proposers: 1   # bumped to 3 once Wafer concurrency tuning is confirmed; temporarily serial for testing
+per_doc_budget_seconds: 180   # Wafer is slower than the design assumed — was 30s
 trace_sample_k: 10
 
 wafer_spend_ceiling_usd: 30

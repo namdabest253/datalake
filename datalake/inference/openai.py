@@ -78,10 +78,12 @@ class OpenAIClient:
                     data = await resp.json(content_type=None)
             latency_ms = int((time.perf_counter() - t0) * 1000)
 
-        content = data["choices"][0]["message"]["content"]
-        usage = data.get("usage", {})
-        tokens_in = int(usage.get("prompt_tokens", max(1, len(user) // 4)))
-        tokens_out = int(usage.get("completion_tokens", max(1, len(content) // 4)))
+        choices = data.get("choices") or []
+        msg = choices[0].get("message", {}) if choices else {}
+        content = msg.get("content") or ""
+        usage = data.get("usage") or {}
+        tokens_in = int(usage.get("prompt_tokens") or max(1, len(user) // 4))
+        tokens_out = int(usage.get("completion_tokens") or max(1, len(content) // 4))
         return CallResult(
             response_text=content,
             tokens_in=tokens_in,

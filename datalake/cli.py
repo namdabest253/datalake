@@ -19,6 +19,7 @@ from loguru import logger
 from datalake.config import load_settings
 from datalake.ingest.parser import walk_and_ingest
 from datalake.storage.db import init_db
+from datalake.storage.models import Document
 from datalake.storage.writes import insert_documents, insert_run
 
 app = typer.Typer(
@@ -60,16 +61,129 @@ def ingest(
 
 @app.command()
 def run(
-    run_id: str | None = typer.Option(None, "--run-id"),
-    persist: bool = typer.Option(False, "--persist"),
-    continue_: bool = typer.Option(False, "--continue", help="Resume after BudgetExceededError."),
-    retry_failed: bool = typer.Option(False, "--retry-failed"),
+    run_id: str | None = typer.Option(None, "--run-id", help="Defaults to the most recent run."),
+    limit: int | None = typer.Option(None, "--limit", help="Cap docs processed (testing)."),
     ceiling: float | None = typer.Option(None, "--ceiling", help="Override wafer_spend_ceiling_usd."),
     debug: bool = typer.Option(False, "--debug"),
-    sample_rate: int | None = typer.Option(None, "--sample-rate", help="Override trace_sample_k."),
 ) -> None:
-    """Run the 6-pass agent loop on all INGESTED docs for this run."""
-    raise NotImplementedError("TODO: wire to datalake.loop.state_machine")
+    """Run the 6-pass agent loop on INGESTED docs for this run."""
+    import sys
+
+    from datalake.inference.accounting import BudgetExceededError
+    from datalake.inference.base import GlobalSemaphores
+    from datalake.inference.wafer import WaferClient
+    from datalake.ingest.parser import _parse_one
+    from datalake.loop.state_machine import run_doc
+    from datalake.storage.db import connect
+
+    settings = load_settings()
+    if ceiling is not None:
+        settings = settings.model_copy(update={"wafer_spend_ceiling_usd": ceiling})
+    if not settings.wafer_api_key:
+        typer.echo("ERROR: WAFER_API_KEY not set. Configure .env.", err=True)
+        raise typer.Exit(1)
+
+    if debug:
+        logger.remove()
+        logger.add(sys.stderr, level="DEBUG")
+
+    db_path = settings.paths.sqlite_db
+    if not db_path.exists():
+        typer.echo(f"ERROR: no DB at {db_path}. Run `datalake ingest <path>` first.", err=True)
+        raise typer.Exit(1)
+
+    heuristics_yaml = (
+        settings.paths.heuristics.read_text() if settings.paths.heuristics.exists() else ""
+    )
+
+    async def _go() -> None:
+        sems = GlobalSemaphores(
+            wafer=settings.wafer_concurrency,
+            openai=settings.openai_concurrency,
+            judge=settings.judge_concurrency,
+        )
+        client = WaferClient(
+            api_key=settings.wafer_api_key,
+            base_url=settings.wafer_base_url,
+            model=settings.wafer_loop_model,
+            semaphores=sems,
+        )
+        per_doc_sem = asyncio.Semaphore(settings.per_doc_concurrency)
+
+        async with connect(db_path) as conn:
+            # Resolve run_id (default = most recent run).
+            resolved = run_id
+            if resolved is None:
+                row = await (await conn.execute(
+                    "SELECT id FROM runs ORDER BY started_at DESC LIMIT 1"
+                )).fetchone()
+                if row is None:
+                    typer.echo("ERROR: no runs in DB. Run `datalake ingest <path>` first.", err=True)
+                    raise typer.Exit(1)
+                resolved = row[0]
+
+            sql = (
+                "SELECT id, source_path, source_hash, content_type_guess, ingested_at "
+                "FROM documents WHERE run_id=? AND status='INGESTED' ORDER BY ingested_at"
+            )
+            params: tuple = (resolved,)
+            if limit is not None:
+                sql += " LIMIT ?"
+                params = (resolved, limit)
+            rows = await (await conn.execute(sql, params)).fetchall()
+
+            if not rows:
+                typer.echo(f"No INGESTED docs for run_id={resolved}.", err=True)
+                return
+
+            typer.echo(f"run_id={resolved}  processing {len(rows)} docs...")
+            stats = {"done": 0, "partial": 0, "failed": 0, "wafer_micro_usd": 0}
+
+            async def _process(row: object) -> None:
+                row_dict = dict(row)
+                try:
+                    text, refs = _parse_one(Path(row_dict["source_path"]))
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(f"re-parse failed for {row_dict['source_path']}: {exc}")
+                    stats["failed"] += 1
+                    return
+                doc = Document(
+                    id=row_dict["id"],
+                    run_id=resolved,
+                    source_path=row_dict["source_path"],
+                    source_hash=row_dict["source_hash"],
+                    content_type_guess=row_dict["content_type_guess"],
+                    ingested_at=row_dict["ingested_at"],
+                    status="INGESTED",
+                    text=text,
+                    references=refs,
+                )
+                result = await run_doc(
+                    doc, 0, client, heuristics_yaml, settings, per_doc_sem,
+                    conn=conn, run_id=resolved,
+                )
+                if result.partial:
+                    stats["partial"] += 1
+                elif str(result.state) == "FAILED":
+                    stats["failed"] += 1
+                else:
+                    stats["done"] += 1
+                stats["wafer_micro_usd"] += result.wafer_micro_usd
+
+            try:
+                # Single connection → process sequentially to avoid SQLite write contention.
+                # For real fan-out across docs, use multiple connections; out of scope here.
+                for row in rows:
+                    await _process(row)
+            except BudgetExceededError as e:
+                typer.echo(f"PAUSED: {e}", err=True)
+
+            typer.echo(
+                f"done={stats['done']}  partial={stats['partial']}  failed={stats['failed']}  "
+                f"wafer_spend=${stats['wafer_micro_usd'] / 1_000_000:.4f}"
+            )
+
+    asyncio.run(_go())
 
 
 @app.command(name="eval")

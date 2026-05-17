@@ -131,8 +131,11 @@ async def run_doc(
                         _accumulate_cost(cr, result)
                         await _trace_ok(conn, doc.id, run_id, "PROPOSE", i, cr)
                 await conn.commit()
-                if len(survivors) < 2:
-                    raise _PassGroupFailed(f"PROPOSE: only {len(survivors)} of {n} succeeded")
+                quorum = min(2, n)  # match design (≥2 of 3); also works for n=1 testing
+                if len(survivors) < quorum:
+                    raise _PassGroupFailed(
+                        f"PROPOSE: only {len(survivors)} of {n} succeeded (need {quorum})"
+                    )
 
                 # --- CRITIQUE × len(survivors) (parallel) ---
                 result.state = State.CRITIQUE_FANOUT
