@@ -94,6 +94,15 @@ export type EvalPair =
 
 export type FormatBar = { label: string; count: number; pct: number };
 
+export type UploadResult = {
+  run_id: string;
+  files_received: number;
+  files_ingested: number;
+  files_failed: number;
+  rows_written: number;
+  skipped: Array<{ name: string; reason: string }>;
+};
+
 export type DocumentDetail = {
   document: {
     id: string;
@@ -169,6 +178,25 @@ export const api = {
       runId ? { run_id: runId } : undefined,
     ),
   document: (docId: string) => getJSON<DocumentDetail>(`/api/document/${docId}`),
+  deleteRun: async (runId: string): Promise<{ deleted: string }> => {
+    const url = new URL(`/api/runs/${encodeURIComponent(runId)}`, BASE);
+    const res = await fetch(url.toString(), { method: "DELETE" });
+    if (!res.ok) throw new Error(`delete run: HTTP ${res.status}`);
+    return (await res.json()) as { deleted: string };
+  },
+  uploadFiles: async (files: File[]): Promise<UploadResult> => {
+    const url = new URL("/api/uploads", BASE);
+    const form = new FormData();
+    for (const f of files) form.append("files", f, f.name);
+    const res = await fetch(url.toString(), { method: "POST", body: form });
+    const body = (await res.json().catch(() => ({}))) as Partial<UploadResult> & {
+      error?: string;
+    };
+    if (!res.ok) {
+      throw new Error(body.error ?? `upload: HTTP ${res.status}`);
+    }
+    return body as UploadResult;
+  },
   /** Returns the direct download URL for the given export format. */
   exportDownloadUrl: (format: "jsonl" | "csv" | "card", runId?: string): string => {
     const params = new URLSearchParams({ format });

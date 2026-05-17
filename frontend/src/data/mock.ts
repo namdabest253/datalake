@@ -64,6 +64,7 @@ export type CatalogRow = {
   complianceLabel: string;
   score: number;
   iconName: string;
+  contentType?: string;
 };
 
 export const CATALOG_ROWS: CatalogRow[] = [

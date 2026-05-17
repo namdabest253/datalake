@@ -108,9 +108,15 @@ async def run_doc(
 
         try:
             async with asyncio.timeout(settings.per_doc_budget_seconds):
+                # READ does no inference (extraction already happened in ingest);
+                # we still emit a synthetic trace event so the dashboard's
+                # Inference Loop Tracker can render the step as completed/failed.
+                read_started_at = time.time()
                 result.state = State.READ
                 if not doc.text:
+                    await _trace_read(conn, doc.id, run_id, read_started_at, ok=False)
                     raise _PassGroupFailed("READ: empty or missing document text")
+                await _trace_read(conn, doc.id, run_id, read_started_at, ok=True)
 
                 # --- PROPOSE × N (parallel) ---
                 result.state = State.PROPOSE_FANOUT
@@ -297,6 +303,29 @@ async def _trace_ok(
             tokens_in=cr.tokens_in,
             tokens_out=cr.tokens_out,
             cost_micro_usd=cr.cost_micro_usd,
+        ),
+    )
+
+
+async def _trace_read(
+    conn: aiosqlite.Connection,
+    doc_id: str,
+    run_id: str,
+    started_at: float,
+    *,
+    ok: bool,
+) -> None:
+    await insert_trace_event(
+        conn,
+        TraceEvent(
+            id=str(uuid.uuid4()),
+            doc_id=doc_id,
+            run_id=run_id,
+            **{"pass": "READ"},
+            proposal_idx=None,
+            started_at=started_at,
+            ended_at=time.time(),
+            status="OK" if ok else "FAILED",
         ),
     )
 

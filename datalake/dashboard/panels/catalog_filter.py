@@ -12,18 +12,26 @@ import streamlit as st
 
 from datalake.prompts.taxonomies import CommercialAction, ComplianceFlag
 
-# Per-doc estimated lifetime commercial value to AI labs as labeled training data.
-# Basis: PRD §3 establishes ~$1–$10 per high-quality scientific datapoint as the
-# buyer-side price. A research paper typically yields tens to low hundreds of
-# datapoints (sections, claims, QA pairs), putting per-paper values in the
-# $100–$1,500 range. Numbers below are demo-grade midpoints; tune against real
-# buyer conversations before claiming a hard market value to the institution.
+# Per-doc estimated AI-training license value paid by labs to the institution.
+# Anchors (2024–2025 disclosed/derived deals):
+#   - HarperCollins ↔ Microsoft (Nov 2024): $5,000/book, 3yr — only fully
+#     disclosed per-unit price in the market.
+#   - Wiley AI deals FY24: $44M total across ~2M-article portfolio →
+#     ~$10–$25/article (analyst-derived).
+#   - Taylor & Francis ↔ Microsoft (May 2024): $10M upfront across ~3M
+#     articles → ~$3–$5/article (analyst-derived).
+#   - Surge/Scale PhD-tier annotation: $50–$100/example, $150–$350/hr (floor
+#     for expert-labeled rates; used as analog for unpublished grant work).
+# Treat these as midpoints with ±2× uncertainty — academic per-article deal
+# counts are not disclosed. Earlier table ($100–$1,500/doc) conflated
+# annotation cost with licensing revenue; these numbers reflect what AI labs
+# actually pay rights-holders, not what vendors charge to label.
 ESTIMATED_VALUE_PER_DOC: dict[str, int] = {
-    "research_paper": 800,
-    "grant_proposal": 200,
-    "dataset_description": 1500,
-    "faculty_publication": 600,
-    "other": 100,
+    "research_paper": 15,
+    "grant_proposal": 50,
+    "dataset_description": 5,
+    "faculty_publication": 10,
+    "other": 2,
 }
 
 
@@ -81,7 +89,10 @@ def render(run_id: str) -> None:
         st.caption("No docs match these filters yet.")
         return
 
-    total_value = sum(ESTIMATED_VALUE_PER_DOC.get(r["content_type"], 100) for r in rows)
+    total_value = sum(
+        ESTIMATED_VALUE_PER_DOC.get(r["content_type"], ESTIMATED_VALUE_PER_DOC["other"])
+        for r in rows
+    )
     c1, c2 = st.columns(2)
     c1.metric("matching docs", f"{len(rows):,}")
     c2.metric("est. market value", f"${total_value:,}")

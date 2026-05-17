@@ -156,10 +156,11 @@ async def test_happy_path(tmp_path: Path) -> None:
         )).fetchone()
         assert tuple(row) == ("DONE", 0)
 
+        # 11 inference-backed events (3+3+3+1+1) plus 1 synthetic READ event.
         traces = await (await conn.execute(
             "SELECT COUNT(*) FROM trace_events WHERE doc_id=?", ("doc-1",)
         )).fetchone()
-        assert traces[0] == 11
+        assert traces[0] == 12
 
         # 22 inference_calls: 11 actual Wafer + 11 estimated GPT-4 foils.
         calls = await (await conn.execute(

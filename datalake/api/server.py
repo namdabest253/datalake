@@ -11,7 +11,9 @@ process across origins, so CORS is open by default for any localhost origin.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -19,6 +21,14 @@ from typing import Any
 from aiohttp import web
 
 from datalake.config import load_settings
+
+# File suffixes the friend's ingest parser actually understands. Anything else
+# is rejected up front so users get a useful error instead of a silent skip.
+_UPLOAD_SUFFIXES = {".pdf", ".txt", ".md", ".json"}
+# Cap any single upload at 200 MB to keep aiohttp's default buffer behaviour sane.
+_MAX_UPLOAD_BYTES = 200 * 1024 * 1024
+# Filename sanitiser: strip path components and anything that isn't a safe char.
+_SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 
 # ---------------------------------------------------------------------------
 # DB helpers — sync sqlite3 is fine for short read queries; aiohttp handlers
@@ -70,6 +80,27 @@ def _resolve_run_id(request: web.Request) -> str | None:
     # No run has documents — return the newest run so endpoints don't blow up.
     row = _read_one("SELECT id FROM runs ORDER BY started_at DESC LIMIT 1")
     return row["id"] if row else None
+
+
+def _resolve_eval_run_id(request: web.Request) -> str | None:
+    """Run resolver for eval endpoints — prefers runs that have eval_pairs.
+
+    `datalake eval` writes eval_pairs under a new eval-only run id (the docs
+    themselves stay under their original ingest run), so the document-bearing
+    fallback in `_resolve_run_id` resolves to the ingest run and misses the
+    eval data entirely. Use this for the /api/eval/* endpoints.
+    """
+    explicit = request.query.get("run_id")
+    if explicit:
+        return explicit
+    row = _read_one(
+        "SELECT r.id FROM runs r "
+        "WHERE EXISTS (SELECT 1 FROM eval_pairs p WHERE p.run_id=r.id) "
+        "ORDER BY r.started_at DESC LIMIT 1"
+    )
+    if row is not None:
+        return row["id"]
+    return _resolve_run_id(request)
 
 
 def _json_safe(raw: Any, default: Any) -> Any:
@@ -155,11 +186,19 @@ async def handle_stream(request: web.Request) -> web.Response:
     if run_id is None:
         return web.json_response([])
     limit = int(request.query.get("limit", "20"))
+    # Sort processed docs ahead of the queue so the stream surfaces meaningful
+    # classifications instead of a wall of pre-classification "other" rows when
+    # an ingest pass dumps the whole corpus into the queue in one tick.
     rows = _read(
         "SELECT d.id, d.source_path, d.status, d.content_type_guess, "
         "       c.content_type FROM documents d "
         "LEFT JOIN catalog_records c ON c.doc_id = d.id "
-        "WHERE d.run_id=? ORDER BY d.ingested_at DESC LIMIT ?",
+        "WHERE d.run_id=? "
+        "ORDER BY CASE d.status "
+        "  WHEN 'RUNNING' THEN 0 "
+        "  WHEN 'DONE' THEN 1 "
+        "  WHEN 'FAILED' THEN 2 "
+        "  ELSE 3 END, d.ingested_at DESC LIMIT ?",
         (run_id, limit),
     )
     out = []
@@ -205,19 +244,32 @@ async def handle_catalog(request: web.Request) -> web.Response:
                 "complianceLabel": label,
                 "score": int(r["commercial_score"]),
                 "iconName": _ICON_FOR_CONTENT_TYPE.get(r["content_type"], "description"),
+                "contentType": r["content_type"],
             }
         )
     return web.json_response(out)
 
 
 async def handle_recent_uploads(_request: web.Request) -> web.Response:
-    """Mock shape `RECENT_UPLOADS` — most-recent runs framed as ingestion batches."""
+    """`RecentUpload[]` — recent runs framed as ingestion batches.
+
+    Only runs with at least one document show up; eval-only / scaffold runs
+    would otherwise dominate the list with zero-file rows and make every
+    column look hard-coded. iconName is derived from the run's dominant
+    catalog content_type so the column actually varies.
+    """
     rows = _read(
         "SELECT r.id, r.corpus_version, r.started_at, r.ended_at, "
         "       (SELECT COUNT(*) FROM documents d WHERE d.run_id=r.id) AS doc_count, "
         "       (SELECT COUNT(*) FROM documents d WHERE d.run_id=r.id "
-        "        AND d.status IN ('DONE','RUNNING','FAILED')) AS processed "
-        "FROM runs r ORDER BY r.started_at DESC LIMIT 5"
+        "        AND d.status IN ('DONE','FAILED')) AS processed, "
+        "       (SELECT c.content_type FROM documents d "
+        "        JOIN catalog_records c ON c.doc_id=d.id "
+        "        WHERE d.run_id=r.id "
+        "        GROUP BY c.content_type ORDER BY COUNT(*) DESC LIMIT 1) AS top_content_type "
+        "FROM runs r "
+        "WHERE EXISTS (SELECT 1 FROM documents d WHERE d.run_id=r.id) "
+        "ORDER BY r.started_at DESC LIMIT 5"
     )
     out = []
     for r in rows:
@@ -232,15 +284,169 @@ async def handle_recent_uploads(_request: web.Request) -> web.Response:
                 "files": total,
                 "status": status,
                 "progress": progress,
-                "iconName": "folder",
+                "iconName": _ICON_FOR_CONTENT_TYPE.get(r["top_content_type"], "folder"),
             }
         )
     return web.json_response(out)
 
 
+async def handle_delete_run(request: web.Request) -> web.Response:
+    """DELETE /api/runs/{run_id} — cascade-remove a run and all of its children.
+
+    The schema declares FK references but no ON DELETE CASCADE, so child rows
+    have to be cleared explicitly before the parent. Order matters because of
+    the FK chain (eval_results → eval_pairs → runs, label/catalog → documents → runs).
+    """
+    run_id = request.match_info["run_id"]
+    path = _db_path()
+    if not path.exists():
+        return web.json_response({"error": "no database"}, status=404)
+    conn = sqlite3.connect(str(path))
+    try:
+        conn.execute(
+            "DELETE FROM eval_results WHERE pair_id IN "
+            "(SELECT id FROM eval_pairs WHERE run_id=?)",
+            (run_id,),
+        )
+        conn.execute("DELETE FROM eval_pairs WHERE run_id=?", (run_id,))
+        conn.execute("DELETE FROM trace_events WHERE run_id=?", (run_id,))
+        conn.execute("DELETE FROM inference_calls WHERE run_id=?", (run_id,))
+        conn.execute(
+            "DELETE FROM label_payloads WHERE doc_id IN "
+            "(SELECT id FROM documents WHERE run_id=?)",
+            (run_id,),
+        )
+        conn.execute(
+            "DELETE FROM catalog_records WHERE doc_id IN "
+            "(SELECT id FROM documents WHERE run_id=?)",
+            (run_id,),
+        )
+        conn.execute("DELETE FROM documents WHERE run_id=?", (run_id,))
+        conn.execute("DELETE FROM dashboard_counters WHERE run_id=?", (run_id,))
+        cur = conn.execute("DELETE FROM runs WHERE id=?", (run_id,))
+        deleted = cur.rowcount
+        conn.commit()
+    finally:
+        conn.close()
+    if deleted == 0:
+        return web.json_response({"error": "run not found"}, status=404)
+    return web.json_response({"deleted": run_id})
+
+
+def _safe_filename(raw: str) -> str:
+    """Strip path components and unsafe characters from a user-supplied filename."""
+    base = Path(raw).name or "upload"
+    cleaned = _SAFE_NAME.sub("_", base).strip("._") or "upload"
+    return cleaned
+
+
+async def handle_upload(request: web.Request) -> web.Response:
+    """POST /api/uploads — accept multipart files, stage to disk, ingest into a new run.
+
+    Flow: each part is written to `<sqlite_db>/../uploads/<run_id>/<safe_name>`,
+    then we hand the folder to the friend's `walk_and_ingest` so parsing and
+    document-row creation go through the existing pipeline. The new run shows
+    up immediately in /api/runs/recent; the agent loop still has to be kicked
+    off separately via `datalake run`.
+    """
+    if not request.content_type.startswith("multipart/"):
+        return web.json_response(
+            {"error": "expected multipart/form-data"}, status=400
+        )
+
+    settings = load_settings()
+    db_path = settings.paths.sqlite_db
+    run_id = str(uuid.uuid4())
+    upload_root = db_path.parent / "uploads" / run_id
+    upload_root.mkdir(parents=True, exist_ok=True)
+
+    saved: list[Path] = []
+    skipped: list[dict[str, str]] = []
+    total_bytes = 0
+
+    reader = await request.multipart()
+    async for part in reader:
+        if part.name != "files":
+            continue
+        raw_name = part.filename or "upload"
+        name = _safe_filename(raw_name)
+        suffix = Path(name).suffix.lower()
+        if suffix not in _UPLOAD_SUFFIXES:
+            skipped.append({"name": raw_name, "reason": f"unsupported suffix {suffix or '(none)'}"})
+            await part.release()
+            continue
+
+        # Disambiguate collisions within this batch by prepending a counter.
+        dest = upload_root / name
+        idx = 1
+        while dest.exists():
+            dest = upload_root / f"{idx:02d}_{name}"
+            idx += 1
+
+        size = 0
+        with dest.open("wb") as fh:
+            while True:
+                chunk = await part.read_chunk(64 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                total_bytes += len(chunk)
+                if size > _MAX_UPLOAD_BYTES or total_bytes > _MAX_UPLOAD_BYTES:
+                    fh.close()
+                    dest.unlink(missing_ok=True)
+                    for p in saved:
+                        p.unlink(missing_ok=True)
+                    try:
+                        upload_root.rmdir()
+                    except OSError:
+                        pass
+                    return web.json_response(
+                        {"error": f"upload exceeds {_MAX_UPLOAD_BYTES} bytes"},
+                        status=413,
+                    )
+                fh.write(chunk)
+        saved.append(dest)
+
+    if not saved:
+        # Nothing usable arrived — tear down the empty folder so we don't litter.
+        try:
+            upload_root.rmdir()
+        except OSError:
+            pass
+        return web.json_response(
+            {"error": "no supported files in upload", "skipped": skipped},
+            status=400,
+        )
+
+    # Defer ingest imports until we actually have work to do, to keep the
+    # /api/health and other read-only endpoints free of the ingest dep tree.
+    from datalake.ingest.parser import walk_and_ingest
+    from datalake.storage.db import init_db
+    from datalake.storage.writes import insert_documents, insert_run
+
+    await init_db(db_path, persist=True)
+    await insert_run(db_path, settings, upload_root, run_id=run_id)
+    docs = await walk_and_ingest(upload_root, run_id=run_id)
+    written = await insert_documents(db_path, docs)
+    n_ingested = sum(1 for d in docs if d.status == "INGESTED")
+    n_failed = sum(1 for d in docs if d.status == "FAILED")
+
+    return web.json_response(
+        {
+            "run_id": run_id,
+            "files_received": len(saved),
+            "files_ingested": n_ingested,
+            "files_failed": n_failed,
+            "rows_written": written,
+            "skipped": skipped,
+        },
+        status=201,
+    )
+
+
 async def handle_eval_dimensions(request: web.Request) -> web.Response:
     """`EVAL_DIMENSIONS` shape — per-dimension Datalake win rate vs GPT-4."""
-    run_id = _resolve_run_id(request)
+    run_id = _resolve_eval_run_id(request)
     if run_id is None:
         return web.json_response([])
     rows = _read(
@@ -418,7 +624,7 @@ async def handle_eval_pair(request: web.Request) -> web.Response:
     `?pair_id=...` wins; else the first pair for the active run. Both records are
     de-blinded so the frontend doesn't have to know about A/B mapping.
     """
-    run_id = _resolve_run_id(request)
+    run_id = _resolve_eval_run_id(request)
     if run_id is None:
         return web.json_response({"available": False})
     pair_id = request.query.get("pair_id")
@@ -478,20 +684,22 @@ async def handle_eval_pair(request: web.Request) -> web.Response:
 def _eval_record_view(rec: dict) -> dict:
     """Flatten the record JSON into the keys the Eval page needs.
 
-    Both pipelines return the same conceptual record (catalog + label); fields are
-    nullable because GPT-4's record may be flatter than the agent loop's.
+    eval_pairs stores the WIRE format (LabelFields / BaselineRecord), where
+    methodology is two top-level fields — methodology_named + methodology_other_freetext.
+    Don't confuse this with the SQLite `label_payloads.methodology` JSON column,
+    which nests them under {named, other_freetext}.
     """
     catalog = rec.get("catalog", {}) if isinstance(rec.get("catalog"), dict) else {}
     label = rec.get("label", {}) if isinstance(rec.get("label"), dict) else {}
-    methodology = label.get("methodology", {}) if isinstance(label.get("methodology"), dict) else {}
     structured = label.get("structured_abstract", {}) if isinstance(label.get("structured_abstract"), dict) else {}
+    named = label.get("methodology_named", [])
     return {
         "content_type": catalog.get("content_type"),
         "summary": structured.get("findings") or structured.get("approach") or "",
         "problem": structured.get("problem", ""),
         "novelty_claim": label.get("novelty_claim", ""),
-        "methodology_named": methodology.get("named", []) if isinstance(methodology.get("named"), list) else [],
-        "methodology_freetext": methodology.get("other_freetext") or "",
+        "methodology_named": named if isinstance(named, list) else [],
+        "methodology_freetext": label.get("methodology_other_freetext") or "",
         "domain_tags": label.get("domain_tags", []) if isinstance(label.get("domain_tags"), list) else [],
         "claim_graph": label.get("claim_graph", []) if isinstance(label.get("claim_graph"), list) else [],
     }
@@ -656,7 +864,14 @@ def _shorten_owner(rationale: str | None) -> str:
 
 
 def _name_from_corpus(corpus_version: str | None, run_id: str) -> str:
-    if corpus_version and corpus_version != "unknown":
+    # Treat eval/unknown/raw-hash corpus_versions as "no useful name" so the
+    # Recent Uploads table doesn't show five rows all called "eval".
+    if (
+        corpus_version
+        and corpus_version != "unknown"
+        and corpus_version != "eval"
+        and not corpus_version.startswith("sha256:")
+    ):
         return corpus_version
     return f"run-{run_id[:8]}"
 
@@ -692,7 +907,7 @@ async def cors_middleware(
     origin = request.headers.get("Origin", "")
     if origin.startswith("http://localhost") or origin.startswith("http://127.0.0.1"):
         resp.headers["Access-Control-Allow-Origin"] = origin
-        resp.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+        resp.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
         resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
     return resp
 
@@ -712,6 +927,8 @@ def build_app() -> web.Application:
     app.router.add_get("/api/ingestion/format-distribution", handle_format_distribution)
     app.router.add_get("/api/export/download", handle_export_download)
     app.router.add_get("/api/document/{doc_id}", handle_document_detail)
+    app.router.add_delete("/api/runs/{run_id}", handle_delete_run)
+    app.router.add_post("/api/uploads", handle_upload)
     # Wildcard OPTIONS so the CORS preflight succeeds for any /api/* path.
     app.router.add_route("OPTIONS", "/{tail:.*}", lambda _r: web.Response(status=204))
     return app

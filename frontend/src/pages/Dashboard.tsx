@@ -252,7 +252,7 @@ function LoopStep({
       className={`relative z-10 flex items-start gap-4 ${muted ? "opacity-50" : ""}`}
     >
       <div
-        className={`w-6 h-6 rounded-full flex items-center justify-center mt-1 ${
+        className={`w-6 h-6 shrink-0 rounded-full flex items-center justify-center mt-1 ${
           done
             ? "bg-secondary"
             : active

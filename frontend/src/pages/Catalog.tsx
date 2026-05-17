@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Icon } from "@/components/Icon";
 import { type ComplianceStatus } from "@/data/mock";
 import { api, type DocumentDetail } from "@/api/client";
@@ -30,6 +31,22 @@ const COMPLIANCE_STYLES: Record<
 
 const PAGE_SIZE = 25;
 
+// Per-doc AI-training license value, USD. Mirrors datalake/dashboard/panels/
+// catalog_filter.py — see that file for the deal-anchored rationale.
+const ESTIMATED_VALUE_PER_DOC: Record<string, number> = {
+  research_paper: 15,
+  grant_proposal: 50,
+  dataset_description: 5,
+  faculty_publication: 10,
+  other: 2,
+};
+
+const VALUE_METHODOLOGY =
+  "Per-doc license value anchored to disclosed 2024–2025 AI-training deals: " +
+  "HarperCollins/Microsoft ($5k/book), Wiley FY24 ($10–25/article derived), " +
+  "Taylor & Francis/Microsoft ($3–5/article derived), Surge expert-annotation " +
+  "rates ($50–100/example). Midpoints by content type; ±2× uncertainty.";
+
 // Filter pills. Each pill is a predicate over a CatalogRow plus a UI label/icon.
 // Pills are independently toggleable; rows must match ALL active pills (AND).
 type CatalogRow = {
@@ -40,6 +57,7 @@ type CatalogRow = {
   complianceLabel: string;
   score: number;
   iconName: string;
+  contentType?: string;
 };
 
 type Pill = {
@@ -77,7 +95,12 @@ const PILLS: Pill[] = [
 ];
 
 export default function Catalog() {
-  const catalog = useApi(() => api.catalog(undefined, { limit: 500 }), []);
+  const [params] = useSearchParams();
+  const runId = params.get("run_id") ?? undefined;
+  const catalog = useApi(
+    () => api.catalog(runId, { limit: 500 }),
+    [runId],
+  );
   const rows = catalog.data ?? [];
 
   const [search, setSearch] = useState("");
@@ -109,7 +132,15 @@ export default function Catalog() {
   ).length;
   const estMarketValue = filtered
     .filter((r) => r.compliance !== "restricted")
-    .reduce((acc, r) => acc + (r.score >= 70 ? 800 : 200), 0);
+    .reduce((acc, r) => {
+      const base =
+        ESTIMATED_VALUE_PER_DOC[r.contentType ?? "other"] ??
+        ESTIMATED_VALUE_PER_DOC.other;
+      // High commercial score implies richer labelable content (more claims,
+      // clearer methodology) — pay a 1.5× premium. Low-score docs still carry
+      // base value as raw text.
+      return acc + (r.score >= 70 ? base * 1.5 : base);
+    }, 0);
 
   const togglePill = (key: string) => {
     setActivePills((prev) => {
@@ -170,11 +201,18 @@ export default function Catalog() {
           </p>
         </div>
         <div className="mt-4 md:mt-0 text-right border-t md:border-t-0 md:border-l border-outline-variant/30 pt-4 md:pt-0 md:pl-6 w-full md:w-auto">
-          <p className="text-label-caps text-on-surface-variant mb-1">
+          <p className="text-label-caps text-on-surface-variant mb-1 flex items-center justify-end gap-1">
             Est. Market Value
+            <span
+              title={VALUE_METHODOLOGY}
+              aria-label="Methodology"
+              className="text-outline cursor-help"
+            >
+              <Icon name="info" className="text-[14px]" />
+            </span>
           </p>
           <p className="text-headline-sm text-secondary font-mono">
-            ${estMarketValue.toLocaleString()}
+            ${Math.round(estMarketValue).toLocaleString()}
           </p>
         </div>
       </div>
