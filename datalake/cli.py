@@ -10,9 +10,16 @@ Subcommands:
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import typer
+from loguru import logger
+
+from datalake.config import load_settings
+from datalake.ingest.parser import walk_and_ingest
+from datalake.storage.db import init_db
+from datalake.storage.writes import insert_documents, insert_run
 
 app = typer.Typer(
     name="datalake",
@@ -28,7 +35,27 @@ def ingest(
     persist: bool = typer.Option(False, "--persist", help="Keep existing SQLite schema."),
 ) -> None:
     """Walk a folder, parse documents, insert into the documents table."""
-    raise NotImplementedError("TODO: wire to datalake.ingest.parser + storage.db")
+    settings = load_settings()
+    db_path = settings.paths.sqlite_db
+
+    async def _go() -> None:
+        await init_db(db_path, persist=persist)
+        rid = await insert_run(db_path, settings, path, run_id=run_id)
+        docs = await walk_and_ingest(path, run_id=rid)
+        n_ok = sum(1 for d in docs if d.status == "INGESTED")
+        n_failed = sum(1 for d in docs if d.status == "FAILED")
+        written = await insert_documents(db_path, docs)
+        logger.info(
+            "ingest_complete run_id={} db={} parsed_ok={} parsed_failed={} rows_written={}",
+            rid,
+            db_path,
+            n_ok,
+            n_failed,
+            written,
+        )
+        typer.echo(f"run_id={rid}  parsed_ok={n_ok}  failed={n_failed}  rows={written}")
+
+    asyncio.run(_go())
 
 
 @app.command()
