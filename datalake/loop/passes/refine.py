@@ -5,8 +5,18 @@ Temperature 0.2 — mostly mechanical merge. See docs/02 §Per-pass contract, do
 
 from __future__ import annotations
 
-from datalake.inference.base import InferenceClient
-from datalake.prompts.templates import Critique, ProposalRecord, RefinedRecord
+import aiosqlite
+
+from datalake.inference.base import CallResult, InferenceClient
+from datalake.inference.retry import call_pass
+from datalake.prompts.templates import (
+    PASS_TEMPERATURE,
+    Critique,
+    ProposalRecord,
+    RefinedRecord,
+    build_refine_user,
+    build_system,
+)
 from datalake.storage.models import Document
 
 
@@ -15,8 +25,26 @@ async def refine(
     proposal: ProposalRecord,
     critique: Critique,
     client: InferenceClient,
-) -> RefinedRecord:
+    heuristics_yaml: str,
+    *,
+    conn: aiosqlite.Connection,
+    run_id: str,
+    ceiling_usd: float | None = None,
+) -> tuple[CallResult, RefinedRecord]:
     """One refine call. Apply all 'wrong' / 'contradicted_by_source' critiques unconditionally."""
-    raise NotImplementedError(
-        "TODO: build REFINE prompt, call client at temperature=0.2, validate as RefinedRecord."
+    system = build_system("refine agent", heuristics_yaml)
+    user = build_refine_user(proposal, critique, doc.text or "")
+    call_result, parsed = await call_pass(
+        client,
+        system=system,
+        user=user,
+        schema_model=RefinedRecord,
+        temperature=PASS_TEMPERATURE["refine"],
+        timeout=20.0,
+        conn=conn,
+        run_id=run_id,
+        doc_id=doc.id,
+        ceiling_usd=ceiling_usd,
     )
+    assert isinstance(parsed, RefinedRecord)
+    return call_result, parsed

@@ -7,6 +7,7 @@ See docs/03-prompts-and-schemas.md §JSON schemas and §Prompt templates.
 
 from __future__ import annotations
 
+import json
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -144,29 +145,133 @@ def build_system(role: str, heuristics_yaml: str) -> str:
     )
 
 
+def _truncate(text: str, pass_name: str) -> str:
+    """Clip text to ~4 chars per token under the pass's input_cap budget.
+
+    Token≈4 chars is a rough heuristic; tiktoken would be more accurate but we
+    avoid that coupling here. See docs/03 §Token budgets.
+    """
+    tokens = TOKEN_BUDGETS[pass_name]["input_cap"]
+    return text[: 4 * tokens]
+
+
+def _schema_for(model_class: type[BaseModel]) -> str:
+    """Render a pydantic model's JSON schema as a pretty-printed string."""
+    return json.dumps(model_class.model_json_schema(), indent=2)
+
+
 def build_propose_user(document_text: str, references: list[dict], content_type_guess: str) -> str:
     """User message for the PROPOSE pass. See docs/03 §PROPOSE prompt."""
-    raise NotImplementedError("TODO: render the PROPOSE template with truncated doc text")
+    doc = _truncate(document_text, "propose")
+    n = TOKEN_BUDGETS["propose"]["input_cap"]
+    return f"""\
+Document type guess: {content_type_guess}
+Document text (truncated to {n} tokens):
+{doc}
+
+References extracted:
+{json.dumps(references, indent=2)}
+
+Task: produce a ProposalRecord covering catalog (content type, ownership,
+compliance, commercial viability) AND label (methodology, novelty,
+evidence, claim graph, citations, domain tags). Cite source evidence
+inline in rationales where possible.
+
+Schema:
+{_schema_for(ProposalRecord)}"""
 
 
 def build_critique_user(proposal: ProposalRecord, document_text: str, idx: int, n: int) -> str:
     """User message for the CRITIQUE pass. See docs/03 §CRITIQUE prompt."""
-    raise NotImplementedError("TODO: render the CRITIQUE template")
+    doc = _truncate(document_text, "critique")
+    return f"""\
+Proposal under review (index {idx} of {n}):
+{proposal.model_dump_json(indent=2)}
+
+Original document (truncated):
+{doc}
+
+Task: critique each field in the proposal. Flag fields that are
+too vague, wrong, missing evidence, or contradicted by the source.
+For each critiqued field, suggest a specific revision. Then give
+an overall assessment.
+
+Pay particular attention to compliance flags — check the heuristics
+above against the document text. Missed compliance flags are the
+most expensive type of error.
+
+Schema:
+{_schema_for(Critique)}"""
 
 
 def build_refine_user(proposal: ProposalRecord, critique: Critique, document_text: str) -> str:
     """User message for the REFINE pass. See docs/03 §REFINE prompt."""
-    raise NotImplementedError("TODO: render the REFINE template")
+    doc = _truncate(document_text, "refine")
+    return f"""\
+Original proposal:
+{proposal.model_dump_json(indent=2)}
+
+Critique:
+{critique.model_dump_json(indent=2)}
+
+Original document (truncated):
+{doc}
+
+Task: produce a revised RefinedRecord. Apply every "wrong" or
+"contradicted_by_source" critique. Apply "too_vague" critiques
+unless source evidence is genuinely thin. Add a revision_summary
+explaining what changed and why.
+
+Schema:
+{_schema_for(RefinedRecord)}"""
 
 
 def build_vote_user(refined: list[RefinedRecord], document_text: str) -> str:
     """User message for the VOTE pass. See docs/03 §VOTE prompt."""
-    raise NotImplementedError("TODO: render the VOTE template")
+    doc = _truncate(document_text, "vote")
+    n = len(refined)
+    records_json = json.dumps([r.model_dump() for r in refined], indent=2)
+    return f"""\
+Refined records under consideration ({n} candidates):
+{records_json}
+
+Original document (truncated):
+{doc}
+
+Task: pick the strongest record. "Strongest" means:
+  - Highest specificity on methodology
+  - Strongest source-grounded novelty claim
+  - Most defensible compliance flags (false negatives are worse than false positives)
+  - Internally consistent across catalog and label
+
+Output the winner_idx, your confidence, and a one-sentence rationale.
+
+Schema:
+{_schema_for(VoteResult)}"""
 
 
 def build_enrich_user(winning_refined: RefinedRecord, document_text: str) -> str:
     """User message for the ENRICH pass. See docs/03 §ENRICH prompt."""
-    raise NotImplementedError("TODO: render the ENRICH template")
+    doc = _truncate(document_text, "enrich")
+    n = TOKEN_BUDGETS["enrich"]["input_cap"]
+    return f"""\
+Winning record:
+{winning_refined.model_dump_json(indent=2)}
+
+Original document (full text up to {n} tokens):
+{doc}
+
+Task: produce an EnrichedPayload — the AI-lab-ready metadata.
+  - expanded_abstract: 500–800 words, structured narrative
+  - novelty_rationale: why this contribution is novel; cite prior work
+  - citation_context: for each citation, classify as motivation, comparison,
+                      methodology, or background, with a supporting quote
+  - claim_graph_v2: refined claim graph with claim_strength enum
+  - derived_keywords: 5–15 tags useful for retrieval
+  - suggested_buyer_segments: which kind of AI lab would value this
+
+Schema:
+{_schema_for(EnrichedPayload)}"""
 
 
 # Token budgets per pass — drives truncation and the cost meter.

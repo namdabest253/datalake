@@ -8,11 +8,22 @@ See docs/07-evaluation.md §Judge model.
 
 from __future__ import annotations
 
+import time
+
+import aiohttp
+
+from datalake.inference.accounting import estimate_wafer_cost
 from datalake.inference.base import CallResult, GlobalSemaphores
 
 
+class JudgeAPIError(RuntimeError):
+    def __init__(self, status: int, body: str) -> None:
+        super().__init__(f"Judge HTTP {status}: {body[:200]}")
+        self.status = status
+
+
 class JudgeClient:
-    """Wraps a Wafer model selected for eval scoring."""
+    """Wraps a Wafer model selected for eval scoring. Gated by the JUDGE semaphore."""
 
     def __init__(
         self,
@@ -22,7 +33,7 @@ class JudgeClient:
         semaphores: GlobalSemaphores,
     ) -> None:
         self.api_key = api_key
-        self.base_url = base_url
+        self.base_url = base_url.rstrip("/")
         self.model = model
         self.semaphores = semaphores
 
@@ -35,7 +46,48 @@ class JudgeClient:
         temperature: float = 0.0,
         timeout: float = 20.0,
     ) -> CallResult:
-        raise NotImplementedError(
-            "TODO: acquire judge semaphore, call Wafer with judge_model. "
-            "Output schema is JudgeOutput from datalake/prompts/templates.py."
+        body: dict = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "temperature": temperature,
+            "max_tokens": 700,
+        }
+        if json_schema is not None:
+            body["response_format"] = {"type": "json_object"}
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        async with self.semaphores.judge:
+            t0 = time.perf_counter()
+            async with aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=timeout)
+            ) as session:
+                async with session.post(
+                    f"{self.base_url}/chat/completions", json=body, headers=headers
+                ) as resp:
+                    text = await resp.text()
+                    if resp.status >= 400:
+                        raise JudgeAPIError(resp.status, text)
+                    data = await resp.json(content_type=None)
+            latency_ms = int((time.perf_counter() - t0) * 1000)
+
+        content = data["choices"][0]["message"]["content"]
+        usage = data.get("usage", {})
+        tokens_in = int(usage.get("prompt_tokens", max(1, len(user) // 4)))
+        tokens_out = int(usage.get("completion_tokens", max(1, len(content) // 4)))
+        return CallResult(
+            response_text=content,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            cost_micro_usd=estimate_wafer_cost(tokens_in, tokens_out, self.model),
+            cost_basis="actual",
+            latency_ms=latency_ms,
+            model=self.model,
+            provider="judge",
         )

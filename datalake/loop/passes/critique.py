@@ -6,8 +6,17 @@ loop visualizer. Temperature 0.4. See docs/02 §Fan-out shape, docs/03 §CRITIQU
 
 from __future__ import annotations
 
-from datalake.inference.base import InferenceClient
-from datalake.prompts.templates import Critique, ProposalRecord
+import aiosqlite
+
+from datalake.inference.base import CallResult, InferenceClient
+from datalake.inference.retry import call_pass
+from datalake.prompts.templates import (
+    PASS_TEMPERATURE,
+    Critique,
+    ProposalRecord,
+    build_critique_user,
+    build_system,
+)
 from datalake.storage.models import Document
 
 
@@ -18,10 +27,28 @@ async def critique(
     n_total: int,
     client: InferenceClient,
     heuristics_yaml: str,
-) -> Critique:
+    *,
+    conn: aiosqlite.Connection,
+    run_id: str,
+    ceiling_usd: float | None = None,
+) -> tuple[CallResult, Critique]:
     """Critique one proposal. Fail → caller drops the proposal from refine."""
-    raise NotImplementedError(
-        "TODO: build CRITIQUE prompt, call client, validate as Critique. "
-        "Heuristics are injected at the system level — pay special attention to "
-        "compliance flags (missed flags are the most expensive error)."
+    system = build_system(
+        f"critic agent #{proposal_idx} of {n_total} (focus: compliance flags)",
+        heuristics_yaml,
     )
+    user = build_critique_user(proposal, doc.text or "", proposal_idx, n_total)
+    call_result, parsed = await call_pass(
+        client,
+        system=system,
+        user=user,
+        schema_model=Critique,
+        temperature=PASS_TEMPERATURE["critique"],
+        timeout=20.0,
+        conn=conn,
+        run_id=run_id,
+        doc_id=doc.id,
+        ceiling_usd=ceiling_usd,
+    )
+    assert isinstance(parsed, Critique)
+    return call_result, parsed
