@@ -2,24 +2,24 @@
 
 CLI, config, observability, testing, demo runbook, failure modes.
 
-## CLI entrypoints (`lakeaudit/cli.py`)
+## CLI entrypoints (`datalake/cli.py`)
 
 ```
-lakeaudit ingest <path> [--run-id <id>] [--persist]
+datalake ingest <path> [--run-id <id>] [--persist]
   Walk a folder, parse PDFs, insert documents rows. Does not run the loop.
 
-lakeaudit run [--run-id <id>] [--persist] [--continue] [--retry-failed]
+datalake run [--run-id <id>] [--persist] [--continue] [--retry-failed]
               [--ceiling <usd>] [--debug] [--sample-rate <k>]
   Run the agent loop on all INGESTED docs for this run.
 
-lakeaudit eval --n <count> [--run-id <id>] [--dry-run] [--judge-model <name>]
+datalake eval --n <count> [--run-id <id>] [--dry-run] [--judge-model <name>]
   Run the 200-doc side-by-side eval. GPT-4 actually executes here.
 
-lakeaudit export [--run-id <id>] [--out <dir>]
+datalake export [--run-id <id>] [--out <dir>]
   Emit JSONL + CSV + dataset_card.md + HF features dict.
 
-lakeaudit dashboard [--run-id <id>] [--port 8501]
-  Launch the Streamlit UI. (Wraps `streamlit run lakeaudit/dashboard/app.py`.)
+datalake dashboard [--run-id <id>] [--port 8501]
+  Launch the Streamlit UI. (Wraps `streamlit run datalake/dashboard/app.py`.)
 ```
 
 All commands accept `--config <path>` to override the default `config.yaml`. All log to stderr in structured JSON via loguru; `--debug` switches to colorized human-readable.
@@ -54,10 +54,10 @@ trace_sample_k: 10
 wafer_spend_ceiling_usd: 30
 
 paths:
-  sqlite_db: ./.lakeaudit/lakeaudit.db
-  logs_dir: ./.lakeaudit/logs
-  heuristics: ./lakeaudit/prompts/heuristics.yaml
-  judge_rubric: ./lakeaudit/eval/judge_rubric.yaml
+  sqlite_db: ./.datalake/datalake.db
+  logs_dir: ./.datalake/logs
+  heuristics: ./datalake/prompts/heuristics.yaml
+  judge_rubric: ./datalake/eval/judge_rubric.yaml
 ```
 
 Loaded via pydantic-settings; env vars override `config.yaml`; CLI flags override env.
@@ -79,11 +79,11 @@ test:    pytest -x
 lint:    ruff check + ruff format --check
 ```
 
-SQLite path defaults to `./.lakeaudit/lakeaudit.db`. Wipe with `rm -rf .lakeaudit/`.
+SQLite path defaults to `./.datalake/datalake.db`. Wipe with `rm -rf .datalake/`.
 
 ## Observability
 
-- **Logs**: loguru, structured JSON to stderr (or `./.lakeaudit/logs/run_<run_id>.log` for persistent runs). `--debug` flag flips to human-readable + DEBUG level.
+- **Logs**: loguru, structured JSON to stderr (or `./.datalake/logs/run_<run_id>.log` for persistent runs). `--debug` flag flips to human-readable + DEBUG level.
 - **Trace events**: `trace_events` table is the system of record for the loop. Every state transition writes a row. Verbose-traced docs (K=10) include full prompts and responses.
 - **Cost ledger**: `inference_calls` table is the system of record for cost. Both Wafer-actual and GPT-4-estimated rows.
 - **No external APM** (no Sentry, no Datadog). Hackathon scope.
@@ -102,28 +102,28 @@ SQLite path defaults to `./.lakeaudit/lakeaudit.db`. Wipe with `rm -rf .lakeaudi
 - **Smoke (`make smoke`)**
   - Same as integration, runnable manually for pre-demo confidence.
 - **Eval self-test** (see [`07`](07-evaluation.md))
-  - Judge model called on a canonical pair before each `lakeaudit eval` invocation.
+  - Judge model called on a canonical pair before each `datalake eval` invocation.
 
 ## Demo runbook
 
 **Pre-demo (T-24h):**
 
 1. `make smoke` — green.
-2. `lakeaudit ingest demo_corpus/bulk/` — 20k docs, takes ~10 min.
-3. `lakeaudit run --run-id demo` — full bulk processing, takes ~30 min, caches results.
-4. `lakeaudit eval --n 200 --run-id demo` — populates `eval_results`.
+2. `datalake ingest demo_corpus/bulk/` — 20k docs, takes ~10 min.
+3. `datalake run --run-id demo` — full bulk processing, takes ~30 min, caches results.
+4. `datalake eval --n 200 --run-id demo` — populates `eval_results`.
 5. Verify dashboard renders all 6 panels with non-empty data.
 6. Verify `wafer_spend_ceiling_usd` is set higher than the actual spend (it shouldn't trip during demo).
 7. Pre-recorded fallback video saved to `demo_assets/fallback.mp4`.
 
 **Live demo (T-0):**
 
-1. `streamlit run lakeaudit/dashboard/app.py` — opens to populated dashboard (bulk results visible).
-2. Open a separate terminal: `lakeaudit ingest demo_corpus/live_slice/` (50 held-back docs).
-3. Run: `lakeaudit run --run-id demo` (resumes; processes the 50 new docs live).
+1. `streamlit run datalake/dashboard/app.py` — opens to populated dashboard (bulk results visible).
+2. Open a separate terminal: `datalake ingest demo_corpus/live_slice/` (50 held-back docs).
+3. Run: `datalake run --run-id demo` (resumes; processes the 50 new docs live).
 4. Switch to dashboard — watch document stream + loop visualizer + cost meter update live.
-5. **Heuristic edit moment**: open `lakeaudit/prompts/heuristics.yaml` in front of judges, add a new rule (e.g., "if document mentions 'preprint' and 'medRxiv', flag as `clean`"), save.
-6. Re-run: `lakeaudit run --run-id demo --retry-failed` on the slice that triggers the new rule.
+5. **Heuristic edit moment**: open `datalake/prompts/heuristics.yaml` in front of judges, add a new rule (e.g., "if document mentions 'preprint' and 'medRxiv', flag as `clean`"), save.
+6. Re-run: `datalake run --run-id demo --retry-failed` on the slice that triggers the new rule.
 7. Show the updated catalog filter view — license-ready count moves.
 8. Click through eval panel — show win rate, per-dimension deltas, cost ratio.
 
@@ -147,7 +147,7 @@ Drawn primarily from PRD §3 (competitive landscape). Have these ready and rehea
 |---|---|---|
 | Wafer rate-limited mid-demo | 429 storm in logs; loop visualizer stalls | Loop has cached bulk results; dashboard still renders. Switch narrative to filter/eval panels. |
 | Network down | aiohttp connect errors | Pre-recorded `demo_assets/fallback.mp4` |
-| Wafer cluster red | 5xx storm | `lakeaudit run --offline` mode replays a cached run from `demo_assets/replay.jsonl` into a fresh SQLite |
+| Wafer cluster red | 5xx storm | `datalake run --offline` mode replays a cached run from `demo_assets/replay.jsonl` into a fresh SQLite |
 | Hard kill switch trips | `BudgetExceededError` in logs | Raise `--ceiling 60` and re-run; budget was misconfigured |
 | Streamlit crashes | Empty browser tab | `streamlit run` again; reads same SQLite, picks up state |
 | Pre-recorded video bombs | Can't play locally | mp4 also uploaded to a private YouTube unlisted URL; QR code on the laptop screen |

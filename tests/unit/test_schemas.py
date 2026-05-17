@@ -8,14 +8,14 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from lakeaudit.prompts.templates import (
+from datalake.prompts.templates import (
     CatalogFields,
     Critique,
     LabelFields,
     ProposalRecord,
     VoteResult,
 )
-from lakeaudit.prompts.taxonomies import (
+from datalake.prompts.taxonomies import (
     CommercialAction,
     ComplianceFlag,
     ContentType,

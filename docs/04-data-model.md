@@ -2,7 +2,7 @@
 
 SQLite schema, JSONL export schema, HF dataset card layout, catalog CSV layout. Single source of truth for what gets persisted. Pass-output pydantic schemas (which map to many of these columns) live in [`03`](03-prompts-and-schemas.md).
 
-## SQLite schema (`lakeaudit/storage/schema.sql`)
+## SQLite schema (`datalake/storage/schema.sql`)
 
 DDL is recreated from scratch at the start of each run unless `--persist` is passed. No alembic — hackathon-pragmatic.
 
@@ -103,9 +103,9 @@ CREATE TABLE eval_pairs (
     id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL REFERENCES runs(id),
     doc_id TEXT NOT NULL REFERENCES documents(id),
-    lakeaudit_record TEXT NOT NULL,    -- JSON
+    datalake_record TEXT NOT NULL,    -- JSON
     gpt4_record TEXT NOT NULL,         -- JSON
-    a_is_lakeaudit INTEGER NOT NULL    -- blinding map: 1 if A=lakeaudit, 0 if B=lakeaudit
+    a_is_datalake INTEGER NOT NULL    -- blinding map: 1 if A=datalake, 0 if B=datalake
 );
 
 CREATE TABLE eval_results (
@@ -161,7 +161,7 @@ For each Wafer call on the main run, also insert a `provider='openai', cost_basi
 
 For the eval subset, GPT-4 is actually called; those rows get `cost_basis='actual'`.
 
-## JSONL export schema (`lakeaudit/export/jsonl.py`)
+## JSONL export schema (`datalake/export/jsonl.py`)
 
 One JSON object per line, one line per document. **Custom MVP schema — not pinned to Anthropic or OpenAI fine-tune formats.** Resolves PRD §15 #4.
 
@@ -223,10 +223,10 @@ Loadable directly via:
 
 ```python
 from datasets import load_dataset
-ds = load_dataset("json", data_files="lakeaudit_export.jsonl")
+ds = load_dataset("json", data_files="datalake_export.jsonl")
 ```
 
-For explicit schema, the features dict is defined in `lakeaudit/export/hf.py`:
+For explicit schema, the features dict is defined in `datalake/export/hf.py`:
 
 ```python
 from datasets import Features, Value, Sequence
@@ -239,12 +239,12 @@ features = Features({
 })
 ```
 
-## `dataset_card.md` auto-generation (`lakeaudit/export/dataset_card.py`)
+## `dataset_card.md` auto-generation (`datalake/export/dataset_card.py`)
 
 Template populated from SQL aggregates over the completed run:
 
 ```markdown
-# LakeAudit dataset card
+# Datalake dataset card
 
 - **Run ID**: {run_id}
 - **Corpus version**: {corpus_version}
@@ -260,17 +260,17 @@ Template populated from SQL aggregates over the completed run:
 - License-ready docs: {license_ready_count} ({license_ready_pct}%)
 
 ## Label quality (vs single-pass GPT-4 on 200-doc eval subset)
-- LakeAudit win rate: {win_rate_pct}%
+- Datalake win rate: {win_rate_pct}%
 - Quality delta by dimension: {dimension_deltas}
-- LakeAudit cost per doc: ${wafer_cost_per_doc}
+- Datalake cost per doc: ${wafer_cost_per_doc}
 - GPT-4 cost per doc: ${gpt4_cost_per_doc}
-- LakeAudit / GPT-4 cost ratio: {cost_ratio}
+- Datalake / GPT-4 cost ratio: {cost_ratio}
 
 ## Models used
 {model_versions table}
 
 ## Methodology
-LakeAudit ran a 6-pass agent loop (propose × 3 → critique × 3 → refine × 3 → vote → enrich)
+Datalake ran a 6-pass agent loop (propose × 3 → critique × 3 → refine × 3 → vote → enrich)
 on Wafer Serverless. GPT-4 baseline ran single-pass with the same combined prompt.
 Judge: {judge_model}, blinded A/B comparison.
 
@@ -278,7 +278,7 @@ GPT-4 foil cost in the dashboard cost meter is **estimated** (tokens × public p
 GPT-4 was only actually run on the 200-doc eval subset.
 ```
 
-## Catalog CSV (`lakeaudit/export/csv.py`)
+## Catalog CSV (`datalake/export/csv.py`)
 
 Flat columns for the compliance team. One row per doc.
 
@@ -292,5 +292,5 @@ compliance_flags, commercial_score, commercial_action
 
 ## Idempotency & migrations
 
-- **Idempotency:** `documents.UNIQUE(run_id, source_hash)` makes re-running a corpus skip docs whose hash is already present with status `DONE`. `lakeaudit run --retry-failed` deletes `FAILED` rows for the current run and re-queues those docs.
+- **Idempotency:** `documents.UNIQUE(run_id, source_hash)` makes re-running a corpus skip docs whose hash is already present with status `DONE`. `datalake run --retry-failed` deletes `FAILED` rows for the current run and re-queues those docs.
 - **Migrations:** none. `schema.sql` is recreated each run unless `--persist`. Hackathon scope. If you want to keep data across runs, pass `--persist` and accept that DDL drift is on you.

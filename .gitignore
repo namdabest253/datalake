@@ -14,8 +14,8 @@ venv/
 # uv (lockfile IS committed — this is an app, not a library)
 .uv/
 
-# LakeAudit runtime state
-.lakeaudit/
+# Datalake runtime state
+.datalake/
 *.db
 *.db-wal
 *.db-shm

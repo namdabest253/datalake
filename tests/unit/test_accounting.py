@@ -5,7 +5,7 @@ See docs/05-inference-client.md §Competitive foils, §Hard kill switch.
 
 from __future__ import annotations
 
-from lakeaudit.inference.accounting import (
+from datalake.inference.accounting import (
     GPT4_PRICING,
     HUMAN_LABELER_PRICING_PER_DOC_USD,
     estimate_gpt4_cost,
@@ -30,7 +30,7 @@ def test_estimate_gpt4_cost_mixed() -> None:
 
 def test_human_labeler_pricing_has_all_content_types() -> None:
     """Every ContentType enum value must have a default per-doc price (no KeyError at runtime)."""
-    from lakeaudit.prompts.taxonomies import ContentType
+    from datalake.prompts.taxonomies import ContentType
 
     for ct in ContentType:
         assert ct.value in HUMAN_LABELER_PRICING_PER_DOC_USD

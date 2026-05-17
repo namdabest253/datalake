@@ -1,7 +1,7 @@
 {
-  "_comment": "Eval self-test fixture. See docs/07-evaluation.md §Self-test. The judge MUST pick LakeAudit with methodology delta >= +2; otherwise we abort the eval run.",
+  "_comment": "Eval self-test fixture. See docs/07-evaluation.md §Self-test. The judge MUST pick Datalake with methodology delta >= +2; otherwise we abort the eval run.",
   "document_text": "We present a novel application of contrastive learning to scientific paper retrieval. Our method, ScholarCLIP, fine-tunes a SciBERT encoder using triplet loss on a curated dataset of 12,000 paired papers. Compared to a TF-IDF baseline and a vanilla SciBERT zero-shot embedding, ScholarCLIP achieves mean reciprocal rank of 0.74 (vs 0.41 baseline, 0.58 zero-shot). Ablations show contrastive triplet sampling contributes 0.12 MRR; domain-specific pretraining contributes 0.04. Authors are affiliated with University of Chicago. Funded by NSF grant CCF-2401234. The paper is released under CC-BY 4.0.",
-  "lakeaudit_record": {
+  "datalake_record": {
     "catalog": {
       "content_type": "research_paper",
       "content_type_confidence": 0.96,
@@ -65,8 +65,8 @@
     "overall_confidence": 0.55
   },
   "expected_judgement": {
-    "winner": "lakeaudit",
+    "winner": "datalake",
     "methodology_delta_minimum": 2,
-    "notes": "LakeAudit names specific techniques (contrastive_learning, fine_tuned_bert) and grounds compliance flags in the CC-BY license; GPT-4 record is generic across the board."
+    "notes": "Datalake names specific techniques (contrastive_learning, fine_tuned_bert) and grounds compliance flags in the CC-BY license; GPT-4 record is generic across the board."
   }
 }

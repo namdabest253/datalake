@@ -23,7 +23,7 @@ def main() -> None:
     SYNTHETIC_DIR.mkdir(parents=True, exist_ok=True)
     raise NotImplementedError(
         "TODO: hand-author or template ~30 markdown/PDF docs that exercise each "
-        "compliance heuristic in lakeaudit/prompts/heuristics.yaml. "
+        "compliance heuristic in datalake/prompts/heuristics.yaml. "
         "Filenames: SYNTHETIC_<category>_<n>.{md,pdf}."
     )
 

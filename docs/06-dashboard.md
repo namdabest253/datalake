@@ -6,8 +6,8 @@ Streamlit single-page app with 6 panels. Reads from SQLite (WAL mode). Polls —
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│  LakeAudit — Run: 2026-05-16-1735       (N=3, K=10, ceiling=$30)         │
-│  "Scale AI labels data. LakeAudit makes university data labelable."      │
+│  Datalake — Run: 2026-05-16-1735       (N=3, K=10, ceiling=$30)         │
+│  "Scale AI labels data. Datalake makes university data labelable."      │
 ├──────────────────────────────────────────────────────────────────────────┤
 │ ┌───────────────────────────┐ ┌──────────────────────────────────────┐   │
 │ │  1. DOCUMENT STREAM       │ │  2. AGENT LOOP VISUALIZER            │   │
@@ -47,13 +47,13 @@ Streamlit single-page app with 6 panels. Reads from SQLite (WAL mode). Polls —
 
 - **`st_autorefresh` at 1Hz** for panels 1, 3, 4 (counters and streams).
 - **250ms refresh** for panel 2 (visualizer) — picks a verbose-traced doc and animates its trace events.
-- **No refresh** for panels 5 (post-run filter) and 6 (eval results, populated by `lakeaudit eval`).
+- **No refresh** for panels 5 (post-run filter) and 6 (eval results, populated by `datalake eval`).
 
 All reads come from SQLite. WAL mode allows concurrent reads with the writer. No websockets, no SSE.
 
 Justification: the loop writer process is on the same machine; latency is sub-millisecond; bounded data sizes (latest N rows for streams, pre-aggregated counters for everything else) keep query time well under the refresh interval.
 
-## Per-panel data source (`lakeaudit/dashboard/queries.py`)
+## Per-panel data source (`datalake/dashboard/queries.py`)
 
 ### Panel 1: Document stream
 
@@ -128,7 +128,7 @@ Render all three numbers, abbreviating large ones (`$1.8K`, `$437K`, `$1.2M`). S
 
 **Always display the foil methodology annotation** below the numbers (small italic gray text — see ASCII wireframe above). This is non-negotiable and not user-dismissable.
 
-The three-foil comparison is the core competitive claim from PRD §3 ("Scale AI labels data. LakeAudit makes university data labelable in the first place."). Wafer beats GPT-4 by ~500× and beats Surge-tier human labeling by ~30,000–100,000× depending on corpus size — the latter ratio is the one that decides whether the institutional-seller market exists at all.
+The three-foil comparison is the core competitive claim from PRD §3 ("Scale AI labels data. Datalake makes university data labelable in the first place."). Wafer beats GPT-4 by ~500× and beats Surge-tier human labeling by ~30,000–100,000× depending on corpus size — the latter ratio is the one that decides whether the institutional-seller market exists at all.
 
 ### Panel 5: Catalog filter view (post-run only)
 
@@ -145,7 +145,7 @@ WHERE d.run_id = :run_id
 ORDER BY c.commercial_score DESC;
 ```
 
-Estimated total market value: sum over license-ready docs of a per-content-type dollar table (constants in `lakeaudit/dashboard/panels/filter.py`):
+Estimated total market value: sum over license-ready docs of a per-content-type dollar table (constants in `datalake/dashboard/panels/filter.py`):
 
 ```python
 # Per-doc estimated lifetime commercial value to AI labs as labeled training data.
@@ -165,12 +165,12 @@ ESTIMATED_VALUE_PER_DOC = {
 
 ### Panel 6: Side-by-side eval
 
-Refresh: on `lakeaudit eval` completion (manual refresh button or auto on dashboard reload).
+Refresh: on `datalake eval` completion (manual refresh button or auto on dashboard reload).
 
 Pseudo-SQL (the actual unblinding done in Python after fetch):
 
 ```sql
-SELECT p.id, p.a_is_lakeaudit, r.winner, r.dimension_scores
+SELECT p.id, p.a_is_datalake, r.winner, r.dimension_scores
 FROM eval_pairs p
 JOIN eval_results r ON r.pair_id = p.id
 WHERE p.run_id = :run_id;
@@ -179,9 +179,9 @@ WHERE p.run_id = :run_id;
 Python aggregator computes:
 
 ```python
-winners = [resolve_winner(row.a_is_lakeaudit, row.winner) for row in rows]
-win_rate = winners.count("lakeaudit") / sum(1 for w in winners if w != "tie")
-dim_deltas = {dim: mean(lakeaudit_score[dim] - gpt4_score[dim] for row in rows)
+winners = [resolve_winner(row.a_is_datalake, row.winner) for row in rows]
+win_rate = winners.count("datalake") / sum(1 for w in winners if w != "tie")
+dim_deltas = {dim: mean(datalake_score[dim] - gpt4_score[dim] for row in rows)
               for dim in DIMENSIONS}
 ```
 
@@ -216,6 +216,6 @@ This is comfortably below SQLite's read throughput. If query latency creeps abov
 
 ## Failure modes
 
-- **Loop process dies mid-run** → dashboard keeps reading the last-committed state. Counter freezes. Restart loop with `lakeaudit run --continue`.
+- **Loop process dies mid-run** → dashboard keeps reading the last-committed state. Counter freezes. Restart loop with `datalake run --continue`.
 - **Dashboard process dies** → loop unaffected. Restart `streamlit run`.
 - **SQLite corruption** (rare) → no recovery in MVP; re-run from scratch. Mitigation: `--persist` flag is opt-in.

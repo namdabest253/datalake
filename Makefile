@@ -4,10 +4,10 @@ install:
 	uv sync --all-extras
 
 demo:
-	uv run lakeaudit ingest demo_corpus/sample/
-	uv run lakeaudit run --n 50
-	uv run lakeaudit eval --n 10
-	uv run lakeaudit dashboard
+	uv run datalake ingest demo_corpus/sample/
+	uv run datalake run --n 50
+	uv run datalake eval --n 10
+	uv run datalake dashboard
 
 smoke:
 	uv run pytest tests/integration/ -x
@@ -24,5 +24,5 @@ format:
 	uv run ruff check . --fix
 
 clean:
-	rm -rf .lakeaudit/ .pytest_cache/ .ruff_cache/
+	rm -rf .datalake/ .pytest_cache/ .ruff_cache/
 	find . -type d -name __pycache__ -exec rm -rf {} +

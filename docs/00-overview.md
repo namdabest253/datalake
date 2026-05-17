@@ -1,6 +1,6 @@
 # 00. Overview
 
-LakeAudit is an agentic data-preparation system for universities. It ingests institutional documents and runs a dense multi-pass agent loop on Wafer that produces a **catalog record** (what is this, who owns it, what compliance applies) and a **rich label payload** (methodology, novelty, claims, evidence, citations) per document.
+Datalake is an agentic data-preparation system for universities. It ingests institutional documents and runs a dense multi-pass agent loop on Wafer that produces a **catalog record** (what is this, who owns it, what compliance applies) and a **rich label payload** (methodology, novelty, claims, evidence, citations) per document.
 
 This doc tree is the **implementation spec**. Product reasoning lives in [`../PRD.md`](../PRD.md). Open this file first; everything else is reachable from the coverage map below.
 
@@ -30,7 +30,7 @@ The 60-second judge experience:
 2. The agent-loop visualizer shows a sampled doc going through `propose → critique → refine → vote → enrich` in real time. Three parallel proposal bubbles, three critique bubbles.
 3. The cost meter shows Wafer at $0.02 cumulative; the GPT-4 foil counter at $187 and climbing.
 4. Click "Filter: license-ready" — the corpus collapses to its sellable subset with an estimated $2.3M market value chip.
-5. Side-by-side panel shows LakeAudit beating GPT-4 on 71% of pairs.
+5. Side-by-side panel shows Datalake beating GPT-4 on 71% of pairs.
 
 Every panel in this list is non-mocked. If a panel can't be made live, it doesn't ship.
 
@@ -39,7 +39,7 @@ Every panel in this list is non-mocked. If a panel can't be made live, it doesn'
 | Metric | Target | Reference |
 |---|---|---|
 | End-to-end per-doc loop | <5s | PRD §9 |
-| LakeAudit win rate vs GPT-4 | ≥65% | PRD §9 |
+| Datalake win rate vs GPT-4 | ≥65% | PRD §9 |
 | Cost per doc vs GPT-4 | ≤30% | PRD §9 |
 | Wafer demo budget | <$30 cumulative | PRD §9 |
 
@@ -53,7 +53,7 @@ Every panel in this list is non-mocked. If a panel can't be made live, it doesn'
 | **Call** | One inference API call. A pass may comprise 1 or more calls (e.g., `propose` = 3 parallel calls). |
 | **Proposal** | A draft record from one proposer agent. 3 per doc. |
 | **Critique** | A criticism of a proposal from a critic agent. |
-| **Judge** | The eval model that scores LakeAudit vs GPT-4 pairs. See [`07`](07-evaluation.md). |
+| **Judge** | The eval model that scores Datalake vs GPT-4 pairs. See [`07`](07-evaluation.md). |
 | **Voter** | The pass-5 agent that picks the strongest refined proposal. |
 | **Run** | One end-to-end invocation across a corpus. Identified by `run_id`. |
 | **Verbose-traced doc** | Every Kth doc (K=10) where prompts + responses are captured inline for the visualizer. |

@@ -1,4 +1,4 @@
-# LakeAudit runtime configuration.
+# Datalake runtime configuration.
 # Overridden by environment variables; overridden again by CLI flags.
 # See docs/05-inference-client.md and docs/08-ops-and-demo.md for field semantics.
 
@@ -19,7 +19,7 @@ trace_sample_k: 10
 wafer_spend_ceiling_usd: 30
 
 paths:
-  sqlite_db: ./.lakeaudit/lakeaudit.db
-  logs_dir: ./.lakeaudit/logs
-  heuristics: ./lakeaudit/prompts/heuristics.yaml
-  judge_rubric: ./lakeaudit/eval/judge_rubric.yaml
+  sqlite_db: ./.datalake/datalake.db
+  logs_dir: ./.datalake/logs
+  heuristics: ./datalake/prompts/heuristics.yaml
+  judge_rubric: ./datalake/eval/judge_rubric.yaml

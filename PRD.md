@@ -1,4 +1,4 @@
-# Product Requirements Document: LakeAudit
+# Product Requirements Document: Datalake
 
 **Version:** 0.4 (Hackathon MVP — competitive landscape added)
 **Owner:** [Your name]
@@ -10,7 +10,7 @@
 
 ## 1. Overview
 
-LakeAudit is an agentic data preparation system built specifically for universities and research institutions. It ingests raw institutional data — research papers, grant proposals, datasets, faculty work — and runs a dense multi-pass agent loop on Wafer that does two jobs in one pass: **catalog** (what is this, who owns it, what compliance regime governs it) and **label** (rich training-grade metadata: methodology, novelty, claims, citations, structure).
+Datalake is an agentic data preparation system built specifically for universities and research institutions. It ingests raw institutional data — research papers, grant proposals, datasets, faculty work — and runs a dense multi-pass agent loop on Wafer that does two jobs in one pass: **catalog** (what is this, who owns it, what compliance regime governs it) and **label** (rich training-grade metadata: methodology, novelty, claims, citations, structure).
 
 The output is a sellable, AI-lab-ready dataset. Institutions get an inventory of what they own *and* a value-multiplied version of their rights-clean data, packaged for direct sale to AI labs.
 
@@ -34,9 +34,9 @@ The AI data labeling market is large and crowded — Scale AI, Surge AI, Labelbo
 
 **None of them serve the institutional seller.** Every incumbent assumes the customer already has the data, knows what it is, and has the legal right to use it. That assumption breaks completely for universities — which is precisely why AI labs are knocking on university presses and the deals aren't closing.
 
-### What's structurally different about LakeAudit
+### What's structurally different about Datalake
 
-| | Existing labelers (Scale, Surge, Snorkel, Labelbox) | LakeAudit |
+| | Existing labelers (Scale, Surge, Snorkel, Labelbox) | Datalake |
 |---|---|---|
 | **Customer** | AI labs (data buyers) | Institutions (data sellers) |
 | **Workflow start** | "Here's data; label it" | "Here's a chaotic file share; tell me what we own" |
@@ -49,7 +49,7 @@ The economics are the most decisive piece. AI labs pay roughly $1–$10 per high
 
 ### Why labeling, not just cataloging
 
-A reasonable question: if the unique value is catalog + compliance inference, why not catalog with LakeAudit and hand the rights-clean subset to Scale for labeling? Five reasons it has to be one product:
+A reasonable question: if the unique value is catalog + compliance inference, why not catalog with Datalake and hand the rights-clean subset to Scale for labeling? Five reasons it has to be one product:
 
 1. **The economics only work end-to-end.** Handoff to Scale at $30–$60 per paper kills the seller's margin on every datapoint. Wafer at fractions of a cent per document is the only price point at which institutional data licensing is profitable for the seller. Routing customers to Scale routes them to an economic dead end.
 
@@ -65,7 +65,7 @@ A reasonable question: if the unique value is catalog + compliance inference, wh
 
 ### One-line positioning
 
-**"Scale AI labels data. LakeAudit makes university data labelable in the first place."**
+**"Scale AI labels data. Datalake makes university data labelable in the first place."**
 
 ## 4. Goals and non-goals
 
@@ -153,9 +153,9 @@ The dashboard is the demo. Required panels:
 ### 8.5 Side-by-side quality evaluation
 - On a held-out subset (~200 documents), run two pipelines in parallel:
   - **Baseline:** single-pass GPT-4 producing the same combined catalog + label payload.
-  - **LakeAudit:** full Wafer agent loop.
+  - **Datalake:** full Wafer agent loop.
 - A third stronger judge model evaluates each pair against the same domain criteria and computes:
-  - Win rate of LakeAudit vs GPT-4
+  - Win rate of Datalake vs GPT-4
   - Average quality delta on each label dimension
   - Cost per document for each pipeline
 - Display in a dedicated panel during demo. **This is the answer to "are the labels useful?"**
@@ -171,7 +171,7 @@ The dashboard is the demo. Required panels:
 - **Speed visible in demo:** label stream outpaces reading speed; per-document loop completes in <5 seconds end-to-end.
 - **End-to-end live:** every screen reachable from one CLI command. No mocked panels.
 - **Cost transparency:** demo run under $30 of Wafer credits, displayed live with GPT-4 counter as foil.
-- **Quality delta:** LakeAudit ≥ 65% win rate vs single-pass GPT-4 baseline on held-out eval. Cost-per-document ≤ 30% of GPT-4 baseline.
+- **Quality delta:** Datalake ≥ 65% win rate vs single-pass GPT-4 baseline on held-out eval. Cost-per-document ≤ 30% of GPT-4 baseline.
 
 ## 10. Technical architecture
 
@@ -212,7 +212,7 @@ Live demo: type the heuristics for label fields (e.g., "for methodology, prefer 
 
 ## 12. Success metrics (mapped to the Wafer rubric)
 
-| Criterion | Pts | How LakeAudit scores it |
+| Criterion | Pts | How Datalake scores it |
 |---|---|---|
 | **Leverage of Fast Inference** | 7 | The agent loop is 10–20 calls per document. The product is economically dead at GPT-4 prices — institutions earn licensing revenue measured in dollars per document, so prep cost must be cents. Dense critique-refine loops with speculative parallelism = "treat tokens as cheap" exactly as the rubric describes. |
 | **Novelty of the Idea** | 6 | Not a chatbot. Not RAG. An institution-specific data preparation system that does catalog and labeling in one inference pipeline, targeting a market (university data licensing) that didn't exist eighteen months ago and has no incumbent product. |

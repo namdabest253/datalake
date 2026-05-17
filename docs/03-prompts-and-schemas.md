@@ -1,12 +1,12 @@
 # 03. Prompts and schemas
 
-Per-pass prompt templates and JSON schemas (as pydantic v2 models). Single source of truth for taxonomies. Compliance heuristics live in `lakeaudit/prompts/heuristics.yaml`.
+Per-pass prompt templates and JSON schemas (as pydantic v2 models). Single source of truth for taxonomies. Compliance heuristics live in `datalake/prompts/heuristics.yaml`.
 
 ## Prompt-design principles
 
 - **One mega-prompt per pass, not per field.** Cheaper (less per-call overhead), more coherent (model holds full context), and faster (fewer round trips).
 - **System message holds taxonomies + role.** User message holds the document chunk + task. Taxonomies change only at deploy time; doc text changes every call. This shape maximizes prompt-cache hit rate on Wafer.
-- **Single source of truth for taxonomies.** All enum strings live in `lakeaudit/prompts/taxonomies.py`. Prompts string-format from there. Pydantic models import the same constants. No drift between schema and prompt.
+- **Single source of truth for taxonomies.** All enum strings live in `datalake/prompts/taxonomies.py`. Prompts string-format from there. Pydantic models import the same constants. No drift between schema and prompt.
 - **Few-shot exemplars: max 1–2 per pass.** Token budget; the model is already strong.
 - **Validate every output with pydantic.** Treat validation failure as a pass failure — one repair retry, then fail. See [`05`](05-inference-client.md) for retry mechanics.
 
@@ -21,7 +21,7 @@ If unsupported, fall back to:
 3. On parse or pydantic-validation failure, one repair retry: original messages + `assistant: {bad_output}` + `user: please return valid JSON matching the schema above; no prose.`
 4. Second failure = pass failure.
 
-## Taxonomies (single source of truth — `lakeaudit/prompts/taxonomies.py`)
+## Taxonomies (single source of truth — `datalake/prompts/taxonomies.py`)
 
 ```python
 from enum import Enum
@@ -71,7 +71,7 @@ METHODOLOGY_NAMED = [
 ]
 ```
 
-## JSON schemas (pydantic v2 — `lakeaudit/prompts/templates.py`)
+## JSON schemas (pydantic v2 — `datalake/prompts/templates.py`)
 
 ### `ProposalRecord` (output of PROPOSE pass)
 
@@ -153,7 +153,7 @@ class EnrichedPayload(BaseModel):
     suggested_buyer_segments: list[Literal["frontier_lab","domain_specialist","data_marketplace","academic_archive"]]
 ```
 
-### Judge schema (consumed by eval — `lakeaudit/eval/judge_runner.py`)
+### Judge schema (consumed by eval — `datalake/eval/judge_runner.py`)
 
 ```python
 class DimensionScore(BaseModel):
@@ -171,9 +171,9 @@ class JudgeOutput(BaseModel):
     rationale: str = Field(max_length=500)
 ```
 
-## Compliance heuristics (`lakeaudit/prompts/heuristics.yaml`)
+## Compliance heuristics (`datalake/prompts/heuristics.yaml`)
 
-Loaded at start of `lakeaudit run`, injected into the CRITIQUE pass's system prompt. Editable on stage between runs (PRD §11).
+Loaded at start of `datalake run`, injected into the CRITIQUE pass's system prompt. Editable on stage between runs (PRD §11).
 
 ```yaml
 # Each rule: a signal in the document → a compliance flag the critic should ensure is set
@@ -204,14 +204,14 @@ clean:
   - "university-press-released dataset with explicit license to redistribute"
 ```
 
-**Hot-reload: between runs only, never mid-run.** Within-run changes would produce inconsistent records inside one corpus. The file is read once in `lakeaudit run`'s startup; subsequent edits require a re-run of the affected slice.
+**Hot-reload: between runs only, never mid-run.** Within-run changes would produce inconsistent records inside one corpus. The file is read once in `datalake run`'s startup; subsequent edits require a re-run of the affected slice.
 
-## Prompt templates (verbatim — `lakeaudit/prompts/templates.py`)
+## Prompt templates (verbatim — `datalake/prompts/templates.py`)
 
 Shared system message shape (across passes):
 
 ```
-You are a {role} for LakeAudit, a university data-preparation system.
+You are a {role} for Datalake, a university data-preparation system.
 
 Taxonomies you MUST use (do not invent values):
   content_type:       {ContentType values}

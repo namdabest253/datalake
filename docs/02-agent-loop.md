@@ -107,7 +107,7 @@ Per-call timeouts (20s) are a separate budget enforced in [`05-inference-client.
 | VOTE | 0.0 | Deterministic selection |
 | ENRICH | 0.5 | Some creativity in summarization, anchored to source |
 
-Seed where provider supports it. Pass-specific `top_p` and `frequency_penalty` defaults in `lakeaudit/prompts/templates.py`.
+Seed where provider supports it. Pass-specific `top_p` and `frequency_penalty` defaults in `datalake/prompts/templates.py`.
 
 ## Trace contract
 

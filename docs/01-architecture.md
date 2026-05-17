@@ -31,7 +31,7 @@ All arrows are in-process (no IPC). Storage is the single source of truth; dashb
 ## Module layout
 
 ```
-lakeaudit/
+datalake/
   __init__.py
   cli.py                  # Typer/argparse — ingest, run, eval, export, dashboard subcommands
   config.py               # pydantic-settings — loads .env and config.yaml
@@ -90,8 +90,8 @@ Single Python process. Single asyncio event loop. No workers, no celery, no redi
 
 Two processes total during a demo:
 
-1. `lakeaudit run` (the loop)
-2. `streamlit run lakeaudit/dashboard/app.py` (the UI)
+1. `datalake run` (the loop)
+2. `streamlit run datalake/dashboard/app.py` (the UI)
 
 Both can run on the same machine, communicating only through SQLite (WAL mode allows concurrent reads with the writer).
 

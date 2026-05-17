@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from lakeaudit.inference.base import CallResult, InferenceClient
+from datalake.inference.base import CallResult, InferenceClient
 
 
 class MockInferenceClient:

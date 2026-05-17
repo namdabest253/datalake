@@ -2,7 +2,7 @@
 
 Provider abstraction, concurrency model, retry/rate-limit, token + cost accounting, GPT-4 foil mechanics, hard kill switch. Every other module depends on this.
 
-## Provider abstraction (`lakeaudit/inference/base.py`)
+## Provider abstraction (`datalake/inference/base.py`)
 
 ```python
 from typing import Protocol, runtime_checkable
@@ -34,15 +34,15 @@ class InferenceClient(Protocol):
 
 Concrete implementations:
 
-- `WaferClient` (`lakeaudit/inference/wafer.py`)
-- `OpenAIClient` (`lakeaudit/inference/openai.py`) — eval-subset only
-- `JudgeClient` (`lakeaudit/inference/judge.py`) — wraps Wafer with a different model
+- `WaferClient` (`datalake/inference/wafer.py`)
+- `OpenAIClient` (`datalake/inference/openai.py`) — eval-subset only
+- `JudgeClient` (`datalake/inference/judge.py`) — wraps Wafer with a different model
 
-All three share the same `call_with_retry_and_accounting` wrapper in `lakeaudit/inference/retry.py` so retry, JSON repair, rate-limit handling, and `inference_calls` row insertion live in one place.
+All three share the same `call_with_retry_and_accounting` wrapper in `datalake/inference/retry.py` so retry, JSON repair, rate-limit handling, and `inference_calls` row insertion live in one place.
 
 ## Concurrency primitives
 
-Global semaphores (created in `lakeaudit/inference/base.py`, sized from `config.yaml`):
+Global semaphores (created in `datalake/inference/base.py`, sized from `config.yaml`):
 
 | Semaphore | Default | Purpose |
 |---|---|---|
@@ -58,7 +58,7 @@ Per-doc semaphore (created per-doc in the orchestrator):
 
 Acquisition order (in `call_with_retry_and_accounting`): provider global → per-doc → call. This order avoids deadlock: every call acquires the global first, the per-doc second, so no cycles.
 
-## Retry strategy (`lakeaudit/inference/retry.py`)
+## Retry strategy (`datalake/inference/retry.py`)
 
 - **Transient errors (429, 5xx, network)**: exponential backoff with jitter. `delay = min(60, 0.5 * 2**attempt + random()*0.3)`. Max 3 attempts.
 - **Honor `Retry-After` header** on 429 — sleep at least that long.
@@ -112,7 +112,7 @@ def insert_gpt4_foil(call: CallResult, db) -> None:
 
 ### Human-labeler foil (per-doc)
 
-For every completed doc on the main run, increment `dashboard_counters.total_human_labeler_equivalent_micro_usd` by a per-content-type constant. PRD §3 establishes $30–$60 per scientific paper (Surge-tier expert rate); defaults in `lakeaudit/inference/accounting.py`:
+For every completed doc on the main run, increment `dashboard_counters.total_human_labeler_equivalent_micro_usd` by a per-content-type constant. PRD §3 establishes $30–$60 per scientific paper (Surge-tier expert rate); defaults in `datalake/inference/accounting.py`:
 
 ```python
 HUMAN_LABELER_PRICING_PER_DOC_USD = {
@@ -141,7 +141,7 @@ The cost meter ([`06`](06-dashboard.md)) surfaces the methodology so judges aren
 
 > "Foils estimated, no real spend. GPT-4: tokens × public pricing. Human: $50/paper midpoint (Surge/Scale, PRD §3). GPT-4 actually runs only on the 200-doc eval subset; no human labels are produced."
 
-GPT-4 actually runs only in the eval harness (`lakeaudit/eval/harness.py`), ~200 docs, `cost_basis='actual'`. Nowhere else.
+GPT-4 actually runs only in the eval harness (`datalake/eval/harness.py`), ~200 docs, `cost_basis='actual'`. Nowhere else.
 
 This is intentional. Running GPT-4 on 20k docs would burn $100k+ in real OpenAI credits. Running Scale/Surge on 20k docs would burn $1M+ and take weeks. Neither serves the demo.
 
@@ -151,11 +151,11 @@ This is intentional. Running GPT-4 on 20k docs would burn $100k+ in real OpenAI 
 |---|---|---|
 | Per-call | 20s | `InferenceClient.call(timeout=20.0)` |
 | Per-pass | implicit (sum of call timeouts) | not enforced separately |
-| **Per-doc wall-clock** | **30s** | `asyncio.timeout(30)` in `lakeaudit/loop/state_machine.py` |
+| **Per-doc wall-clock** | **30s** | `asyncio.timeout(30)` in `datalake/loop/state_machine.py` |
 
 Per-doc is the hard outer bound — see [`02`](02-agent-loop.md).
 
-## Client config (`lakeaudit/config.py`)
+## Client config (`datalake/config.py`)
 
 ```python
 from pydantic_settings import BaseSettings
@@ -187,13 +187,13 @@ class Settings(BaseSettings):
 
 `config.yaml` overrides the defaults; environment variables override `config.yaml`.
 
-## Hard kill switch (`lakeaudit/inference/accounting.py`)
+## Hard kill switch (`datalake/inference/accounting.py`)
 
 After every Wafer call, sum cumulative `cost_micro_usd` where `provider='wafer'` for the current `run_id`. If it exceeds `wafer_spend_ceiling_usd`:
 
 1. Set a global `paused=True` flag.
 2. All subsequent calls raise `BudgetExceededError`.
 3. The orchestrator catches this and writes the current state to storage, marks remaining docs as `INGESTED` (not started), and exits cleanly.
-4. Resume requires `lakeaudit run --continue --ceiling 60` (must explicitly raise the cap).
+4. Resume requires `datalake run --continue --ceiling 60` (must explicitly raise the cap).
 
 Without this, a single misconfigured concurrency setting could exhaust the demo budget in seconds.
