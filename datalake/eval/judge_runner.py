@@ -39,6 +39,6 @@ async def self_test(judge: JudgeClient) -> None:
             f"Canonical pair missing at {CANONICAL_PAIR_PATH}. "
             "See docs/07-evaluation.md §Self-test for the expected fixture format."
         )
-    pair = json.loads(CANONICAL_PAIR_PATH.read_text())
+    _pair = json.loads(CANONICAL_PAIR_PATH.read_text())  # noqa: F841 — used once self_test is implemented
     # Expected: judge picks the "good" side; methodology dimension delta ≥ +2.
     raise NotImplementedError("TODO: call judge_pair, assert expected outcome.")

@@ -19,7 +19,6 @@ from datalake.prompts.taxonomies import (
     Ownership,
 )
 
-
 # ---------------------------------------------------------------------------
 # Schemas
 # ---------------------------------------------------------------------------
@@ -88,6 +87,27 @@ class EnrichedPayload(BaseModel):
     suggested_buyer_segments: list[
         Literal["frontier_lab", "domain_specialist", "data_marketplace", "academic_archive"]
     ]
+
+
+class DimensionScore(BaseModel):
+    """Per-record dimension scores from the eval judge. See docs/07-evaluation.md."""
+
+    methodology_specificity: int = Field(ge=1, le=5)
+    novelty_claim_accuracy: int = Field(ge=1, le=5)
+    evidence_quality: int = Field(ge=1, le=5)
+    citation_completeness: int = Field(ge=1, le=5)
+    compliance_correctness: int = Field(ge=1, le=5)
+    ownership_defensibility: int = Field(ge=1, le=5)
+
+
+class JudgeOutput(BaseModel):
+    """Output of one judge call comparing record_a vs record_b. Blinded — judge does
+    not know which is Datalake. See docs/07-evaluation.md §Blinding."""
+
+    winner: Literal["A", "B", "tie"]
+    a_scores: DimensionScore
+    b_scores: DimensionScore
+    rationale: str = Field(max_length=500)
 
 
 # ---------------------------------------------------------------------------

@@ -5,7 +5,6 @@ See docs/04-data-model.md §Catalog CSV.
 
 from __future__ import annotations
 
-import csv
 from pathlib import Path
 
 CATALOG_COLUMNS = [

@@ -20,7 +20,7 @@ from datalake.dashboard.panels import (
     side_by_side_eval,
 )
 
-RUN_ID = os.environ.get("LAKEAUDIT_RUN_ID", "default")
+RUN_ID = os.environ.get("DATALAKE_RUN_ID", "default")
 
 st.set_page_config(page_title="Datalake", layout="wide")
 

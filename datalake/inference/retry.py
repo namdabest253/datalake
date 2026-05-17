@@ -6,7 +6,6 @@ See docs/05-inference-client.md §Retry strategy.
 
 from __future__ import annotations
 
-import asyncio
 import random
 from collections.abc import Awaitable, Callable
 

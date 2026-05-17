@@ -6,7 +6,7 @@ See docs/02-agent-loop.md §State machine, §Partial-failure policy, §Cancellat
 from __future__ import annotations
 
 import asyncio
-from enum import Enum
+from enum import StrEnum
 
 from datalake.config import Settings
 from datalake.inference.base import InferenceClient
@@ -20,7 +20,7 @@ from datalake.prompts.templates import (
 from datalake.storage.models import Document
 
 
-class State(str, Enum):
+class State(StrEnum):
     INIT = "INIT"
     READ = "READ"
     PROPOSE_FANOUT = "PROPOSE_FANOUT"

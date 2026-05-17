@@ -6,10 +6,10 @@ See docs/03-prompts-and-schemas.md §Taxonomies.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 
-class ContentType(str, Enum):
+class ContentType(StrEnum):
     research_paper = "research_paper"
     grant_proposal = "grant_proposal"
     dataset_description = "dataset_description"
@@ -17,7 +17,7 @@ class ContentType(str, Enum):
     other = "other"
 
 
-class Ownership(str, Enum):
+class Ownership(StrEnum):
     institution = "institution"
     faculty = "faculty"
     third_party_publisher = "third_party_publisher"
@@ -26,7 +26,7 @@ class Ownership(str, Enum):
     unclear = "unclear"
 
 
-class ComplianceFlag(str, Enum):
+class ComplianceFlag(StrEnum):
     ferpa = "ferpa"
     hipaa = "hipaa"
     irb_restricted = "irb_restricted"
@@ -36,7 +36,7 @@ class ComplianceFlag(str, Enum):
     unclear = "unclear"
 
 
-class CommercialAction(str, Enum):
+class CommercialAction(StrEnum):
     license_ready = "license_ready"
     needs_consent = "needs_consent"
     do_not_sell = "do_not_sell"

@@ -8,18 +8,18 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
+from datalake.prompts.taxonomies import (
+    CommercialAction,
+    ComplianceFlag,
+    ContentType,
+    Ownership,
+)
 from datalake.prompts.templates import (
     CatalogFields,
     Critique,
     LabelFields,
     ProposalRecord,
     VoteResult,
-)
-from datalake.prompts.taxonomies import (
-    CommercialAction,
-    ComplianceFlag,
-    ContentType,
-    Ownership,
 )
 
 
@@ -91,7 +91,11 @@ def test_critique_schema() -> None:
         {
             "proposal_idx": 0,
             "field_critiques": [
-                {"field_path": "label.methodology_named", "issue": "too_vague", "suggestion": "Name the specific BERT variant."}
+                {
+                    "field_path": "label.methodology_named",
+                    "issue": "too_vague",
+                    "suggestion": "Name the specific BERT variant.",
+                }
             ],
             "overall_assessment": "revise",
             "rationale": "Methodology needs specificity.",

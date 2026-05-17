@@ -8,8 +8,6 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-import aiosqlite
-
 from datalake.storage.models import Document
 
 
