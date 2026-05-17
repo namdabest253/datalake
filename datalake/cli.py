@@ -98,7 +98,29 @@ def dashboard(
     port: int = typer.Option(8501, "--port"),
 ) -> None:
     """Launch the Streamlit UI. Thin wrapper over `streamlit run datalake/dashboard/app.py`."""
-    raise NotImplementedError("TODO: shell out to `streamlit run` with run_id env var")
+    import os
+    import subprocess
+    import sys
+
+    app_path = Path(__file__).parent / "dashboard" / "app.py"
+    env = os.environ.copy()
+    if run_id:
+        env["DATALAKE_RUN_ID"] = run_id
+    cmd = [
+        sys.executable,
+        "-m",
+        "streamlit",
+        "run",
+        str(app_path),
+        "--server.port",
+        str(port),
+        "--server.headless",
+        "true",
+        "--browser.gatherUsageStats",
+        "false",
+    ]
+    logger.info("dashboard_launch run_id={} port={}", run_id or "<latest>", port)
+    subprocess.run(cmd, env=env, check=False)
 
 
 if __name__ == "__main__":
