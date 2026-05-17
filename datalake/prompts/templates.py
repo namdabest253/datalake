@@ -132,7 +132,7 @@ class BaselineRecord(BaseModel):
 
 # Shared system message preamble. Taxonomies + heuristics are injected at build time.
 SYSTEM_PREAMBLE = """\
-You are a {role} for Datalake, a university data-preparation system.
+You are a {role} for Datalake, a university data-preparation system.{persona_addendum}
 
 Taxonomies you MUST use (do not invent values):
   content_type:       {content_types}
@@ -147,10 +147,16 @@ Compliance heuristics:
 Respond with valid JSON matching the provided schema. No prose."""
 
 
-def build_system(role: str, heuristics_yaml: str) -> str:
-    """Render the shared system preamble with taxonomies and heuristics injected."""
+def build_system(role: str, heuristics_yaml: str, persona_addendum: str = "") -> str:
+    """Render the shared system preamble with taxonomies and heuristics injected.
+
+    persona_addendum: optional lens-specific guidance inserted after the role line.
+    Used by propose.py so each of N proposers attacks the document from a
+    different analytical angle (compliance / methodology / novelty).
+    """
     return SYSTEM_PREAMBLE.format(
         role=role,
+        persona_addendum=persona_addendum,
         content_types=[e.value for e in ContentType],
         ownerships=[e.value for e in Ownership],
         compliance_flags=[e.value for e in ComplianceFlag],

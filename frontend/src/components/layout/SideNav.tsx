@@ -12,7 +12,7 @@ const PRIMARY: NavItem[] = [
 ];
 
 const linkBase =
-  "flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-150 text-label-caps";
+  "flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-150 text-label-caps whitespace-nowrap";
 
 const linkInactive =
   "text-on-primary-container/70 font-medium hover:text-on-primary-container hover:bg-on-primary-container/10";
@@ -23,7 +23,10 @@ const linkActive =
 export function SideNav() {
   return (
     <nav className="hidden md:flex fixed left-0 top-0 h-full w-[240px] z-50 flex-col py-margin-desktop gap-unit bg-primary-container text-on-primary-container border-r border-outline-variant">
-      <div className="px-6 mb-8 flex items-center gap-3">
+      <Link
+        to="/"
+        className="px-6 mb-8 flex items-center gap-3 hover:opacity-80 transition-opacity"
+      >
         <div className="w-10 h-10 rounded-lg bg-primary-fixed flex items-center justify-center text-on-primary-fixed shrink-0">
           <Icon name="science" filled />
         </div>
@@ -35,7 +38,7 @@ export function SideNav() {
             AI Inference Engine
           </p>
         </div>
-      </div>
+      </Link>
 
       <div className="flex-1 px-4 space-y-1 overflow-y-auto">
         {PRIMARY.map((item) => (

@@ -1,19 +1,9 @@
+import type { ReactNode } from "react";
 import { Icon } from "@/components/Icon";
 import { GlassCard } from "@/components/GlassCard";
-import { api, type PassSummary } from "@/api/client";
+import { LoopTracker } from "@/components/LoopTracker";
+import { api } from "@/api/client";
 import { useApi } from "@/api/useApi";
-
-// Display labels and sub-copy keyed on the pass name. The state machine writes one
-// trace_events row per (pass, proposal_idx); the API aggregates these into a single
-// PassSummary per pass. We render one LoopStep per pass.
-const PASS_LABELS: Record<PassSummary["pass"], string> = {
-  READ: "Read & Extract",
-  PROPOSE: "Propose Hypotheses",
-  CRITIQUE: "Multi-Agent Critique",
-  REFINE: "Refine Syntheses",
-  VOTE: "Vote on Winner",
-  ENRICH: "Enrich Payload",
-};
 
 const STATUS_STYLES: Record<
   string,
@@ -33,9 +23,10 @@ function fmtUSD(n: number): string {
 }
 
 export default function Dashboard() {
-  const stream = useApi(() => api.stream(undefined, 20), []);
-  const counters = useApi(() => api.counters(), []);
-  const trace = useApi(() => api.activeTrace(), []);
+  const stream = useApi(() => api.stream(undefined, 20), [], { cacheKey: "dashboard:stream" });
+  const counters = useApi(() => api.counters(), [], { cacheKey: "dashboard:counters" });
+  const trace = useApi(() => api.activeTrace(), [], { cacheKey: "dashboard:activeTrace" });
+  const traces = useApi(() => api.activeTraces(), [], { cacheKey: "dashboard:activeTraces" });
 
   // Cost-bar fill is wafer/gpt4 ratio expressed as percentage of the GPT-4 bar.
   const wafer = counters.data?.wafer_usd ?? 0;
@@ -43,8 +34,11 @@ export default function Dashboard() {
   const ratio = counters.data?.cost_ratio_vs_gpt4 ?? null;
   const fillPct = gpt4 > 0 ? Math.max(0.5, (wafer / gpt4) * 100) : 0;
   const items = stream.data ?? [];
-  const interAgentPct = Math.round((counters.data?.avg_overall_confidence ?? 0) * 100);
-  const overallConfPct = interAgentPct;
+  const overallConfPct = Math.round((counters.data?.avg_overall_confidence ?? 0) * 100);
+  // Median per-call output throughput from /api/active-traces. Dial fill scales to
+  // 100 tok/s = full so the visual still says something at typical Wafer rates.
+  const tps = traces.data?.metrics?.tokens_per_sec ?? 0;
+  const tpsFill = Math.min(100, Math.round(tps));
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-gutter">
@@ -130,69 +124,16 @@ export default function Dashboard() {
           Inference Loop Tracker
         </h2>
         <GlassCard className="p-6 h-[500px] flex flex-col">
-          <div className="text-label-caps text-on-surface-variant mb-6 border-b border-outline-variant pb-2">
-            {trace.loading
-              ? "Active Trace: loading…"
-              : trace.error
-                ? `Active Trace: API error (${trace.error})`
-                : !trace.data?.available
-                  ? "Active Trace: (no trace events yet)"
-                  : `Active Trace: ${trace.data.filename}`}
-          </div>
-          <div className="flex-1 relative flex flex-col justify-between pl-8">
-            <div className="absolute left-[11px] top-4 bottom-4 w-px bg-outline-variant z-0" />
-            {trace.data?.available
-              ? trace.data.passes.map((p) => (
-                  <LoopStep
-                    key={p.pass}
-                    label={PASS_LABELS[p.pass]}
-                    done={p.state === "done"}
-                    active={p.state === "active" || p.state === "failed"}
-                    muted={p.state === "pending"}
-                    sub={
-                      p.state === "pending"
-                        ? undefined
-                        : `${p.ok} ok${p.failed ? `, ${p.failed} failed` : ""}` +
-                          (p.latency_ms !== null ? ` · ${p.latency_ms}ms` : "")
-                    }
-                  >
-                    {p.pass === "PROPOSE" && p.ok > 0 ? (
-                      <div className="flex gap-2 mt-2">
-                        {Array.from({ length: p.ok }).map((_, i) => (
-                          <div
-                            key={i}
-                            className="w-8 h-8 rounded border border-outline flex items-center justify-center bg-surface text-secondary"
-                          >
-                            <Icon name="psychology" className="text-[16px]" />
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-                    {p.pass === "CRITIQUE" && (p.ok > 0 || p.failed > 0) ? (
-                      <div className="flex gap-2 mt-2">
-                        {p.failed > 0 && (
-                          <div className="px-2 py-1 rounded bg-error-container text-on-error-container text-label-sm flex items-center gap-1">
-                            <Icon name="close" className="text-[12px]" /> Reject {p.failed}
-                          </div>
-                        )}
-                        {p.ok > 0 && (
-                          <div className="px-2 py-1 rounded bg-secondary-container text-on-secondary-container text-label-sm flex items-center gap-1">
-                            <Icon name="check" className="text-[12px]" /> Accept {p.ok}
-                          </div>
-                        )}
-                      </div>
-                    ) : null}
-                  </LoopStep>
-                ))
-              : (Object.keys(PASS_LABELS) as PassSummary["pass"][]).map((p) => (
-                  <LoopStep key={p} label={PASS_LABELS[p]} muted />
-                ))}
-          </div>
+          <LoopTracker
+            trace={trace.data}
+            loading={trace.loading}
+            error={trace.error}
+          />
         </GlassCard>
       </div>
 
       {/* Bottom row: Cost + Quality */}
-      <div className="lg:col-span-8 mt-4">
+      <div className="lg:col-span-8 mt-4 relative z-30">
         <GlassCard className="p-6 flex flex-col justify-center">
           <div className="flex justify-between items-end mb-4">
             <div>
@@ -206,8 +147,16 @@ export default function Dashboard() {
             </div>
             <div className="text-right">
               <div className="text-headline-sm text-outline">{fmtUSD(gpt4)}</div>
-              <div className="text-label-sm font-mono text-outline mt-1">
+              <div className="text-label-sm font-mono text-outline mt-1 flex items-center justify-end gap-1">
                 GPT-4 Baseline Equivalent
+                <span
+                  tabIndex={0}
+                  aria-label="How the GPT-4 baseline is estimated"
+                  className="relative group text-outline hover:text-on-surface focus:text-on-surface cursor-help outline-none"
+                >
+                  <Icon name="info" className="text-[14px]" />
+                  <BaselineEquivalentPopover />
+                </span>
               </div>
             </div>
           </div>
@@ -225,63 +174,75 @@ export default function Dashboard() {
       </div>
 
       <div className="lg:col-span-4 mt-4 grid grid-cols-2 gap-4">
-        <QualityDial pct={interAgentPct} label="Inter-Agent\nAgreement" />
-        <QualityDial pct={overallConfPct} label="Overall\nConfidence" />
+        <QualityDial
+          pct={tpsFill}
+          display={
+            <span className="text-body-lg font-semibold">
+              {tps.toFixed(1)}
+              <br />
+              tok/s
+            </span>
+          }
+          label="Inference Throughput"
+        />
+        <QualityDial pct={overallConfPct} label="Overall Confidence" />
       </div>
     </div>
   );
 }
 
-function LoopStep({
-  done,
-  active,
-  muted,
-  label,
-  sub,
-  children,
-}: {
-  done?: boolean;
-  active?: boolean;
-  muted?: boolean;
-  label: string;
-  sub?: string;
-  children?: React.ReactNode;
-}) {
+function BaselineEquivalentPopover() {
   return (
     <div
-      className={`relative z-10 flex items-start gap-4 ${muted ? "opacity-50" : ""}`}
+      role="tooltip"
+      className="pointer-events-none absolute left-full top-1/2 -translate-y-[65%] ml-2 w-96 p-4 z-50 rounded-lg border border-outline-variant bg-surface-container-lowest shadow-float text-left whitespace-normal opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-150 normal-case font-sans"
     >
-      <div
-        className={`w-6 h-6 shrink-0 rounded-full flex items-center justify-center mt-1 ${
-          done
-            ? "bg-secondary"
-            : active
-              ? "bg-surface border-2 border-secondary"
-              : "bg-surface border-2 border-outline-variant"
-        }`}
-      >
-        {done ? (
-          <Icon name="check" className="text-[14px] text-on-secondary" />
-        ) : active ? (
-          <div className="w-2 h-2 rounded-full bg-secondary animate-flash" />
-        ) : null}
-      </div>
-      <div className="w-full">
-        <div
-          className={`text-label-caps ${active ? "text-primary" : "text-on-surface"}`}
-        >
-          {label}
+      <p className="text-label-caps text-on-surface mb-2">
+        How this is estimated
+      </p>
+      <p className="text-body-sm text-on-surface-variant mb-3 leading-relaxed">
+        For every Wafer call the agent loop actually makes, we insert a
+        parallel &quot;foil&quot; row that re-prices the exact same{" "}
+        <span className="text-on-surface font-mono">(tokens_in, tokens_out)</span>{" "}
+        at GPT-4 Turbo&apos;s published rates. No GPT-4 call is made —
+        it&apos;s a counterfactual on observed token counts.
+      </p>
+      <p className="text-label-caps text-on-surface-variant mb-1">
+        GPT-4 Turbo pricing
+      </p>
+      <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 text-body-sm font-mono mb-3">
+        <div className="contents">
+          <dt className="text-on-surface-variant">Input</dt>
+          <dd className="text-on-surface text-right">$10.00 / 1M tok</dd>
         </div>
-        {sub && (
-          <div className="text-label-sm font-mono text-outline mt-1">{sub}</div>
-        )}
-        {children}
-      </div>
+        <div className="contents">
+          <dt className="text-on-surface-variant">Output</dt>
+          <dd className="text-on-surface text-right">$30.00 / 1M tok</dd>
+        </div>
+      </dl>
+      <p className="text-body-sm text-on-surface-variant mb-3 leading-relaxed">
+        Summed across the run, this is what the same 11-call agent loop
+        would have cost if every call had hit GPT-4 instead of Wafer-hosted
+        Qwen. The ratio against actual Wafer spend gives the savings
+        figure.
+      </p>
+      <p className="text-label-sm text-outline italic">
+        Token counts taken from the provider&apos;s reported usage where
+        available, else a local tiktoken estimate.
+      </p>
     </div>
   );
 }
 
-function QualityDial({ pct, label }: { pct: number; label: string }) {
+function QualityDial({
+  pct,
+  label,
+  display,
+}: {
+  pct: number;
+  label: string;
+  display?: ReactNode;
+}) {
   const dasharray = `${pct}, 100`;
   return (
     <GlassCard className="p-6 flex flex-col items-center justify-center text-center">
@@ -303,7 +264,9 @@ function QualityDial({ pct, label }: { pct: number; label: string }) {
             strokeWidth="3"
           />
         </svg>
-        <span className="text-headline-sm text-on-surface">{pct}%</span>
+        <span className="text-headline-sm text-on-surface leading-tight text-center">
+          {display ?? `${pct}%`}
+        </span>
       </div>
       <div className="text-label-caps text-on-surface-variant leading-tight whitespace-pre-line">
         {label}

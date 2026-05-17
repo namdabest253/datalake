@@ -43,7 +43,11 @@ class Settings(BaseSettings):
     baseline_model: str = Field(default="qwen-3.5-397b", validation_alias="WAFER_MODEL_FAST")
 
     # Concurrency
-    wafer_concurrency: int = 64
+    # Wafer key is on a 1-at-a-time tier — parallel calls return HTTP 429
+    # ("concurrency_limit_exceeded"). The client-side semaphore serialises calls
+    # so the loop never self-DDoSes its own quota. Bump only if you've been
+    # moved to a higher tier.
+    wafer_concurrency: int = 1
     openai_concurrency: int = 8
     judge_concurrency: int = 4
     per_doc_concurrency: int = 8

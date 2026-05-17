@@ -41,11 +41,13 @@ const ESTIMATED_VALUE_PER_DOC: Record<string, number> = {
   other: 2,
 };
 
-const VALUE_METHODOLOGY =
-  "Per-doc license value anchored to disclosed 2024–2025 AI-training deals: " +
-  "HarperCollins/Microsoft ($5k/book), Wiley FY24 ($10–25/article derived), " +
-  "Taylor & Francis/Microsoft ($3–5/article derived), Surge expert-annotation " +
-  "rates ($50–100/example). Midpoints by content type; ±2× uncertainty.";
+// Anchor deals shown in the hover popover so the number is auditable.
+const VALUE_ANCHORS: Array<{ label: string; price: string }> = [
+  { label: "HarperCollins / Microsoft (2024)", price: "$5k / book" },
+  { label: "Wiley AI deals FY24", price: "$10–25 / article" },
+  { label: "Taylor & Francis / Microsoft", price: "$3–5 / article" },
+  { label: "Surge expert annotation", price: "$50–100 / example" },
+];
 
 // Filter pills. Each pill is a predicate over a CatalogRow plus a UI label/icon.
 // Pills are independently toggleable; rows must match ALL active pills (AND).
@@ -100,6 +102,7 @@ export default function Catalog() {
   const catalog = useApi(
     () => api.catalog(runId, { limit: 500 }),
     [runId],
+    { cacheKey: `catalog:rows:${runId ?? ""}` },
   );
   const rows = catalog.data ?? [];
 
@@ -204,11 +207,12 @@ export default function Catalog() {
           <p className="text-label-caps text-on-surface-variant mb-1 flex items-center justify-end gap-1">
             Est. Market Value
             <span
-              title={VALUE_METHODOLOGY}
-              aria-label="Methodology"
-              className="text-outline cursor-help"
+              tabIndex={0}
+              aria-label="How this is calculated"
+              className="relative group text-outline hover:text-on-surface focus:text-on-surface cursor-help outline-none"
             >
               <Icon name="info" className="text-[14px]" />
+              <MarketValuePopover />
             </span>
           </p>
           <p className="text-headline-sm text-secondary font-mono">
@@ -233,7 +237,17 @@ export default function Catalog() {
                   Compliance
                 </th>
                 <th className="p-3 text-label-caps text-on-surface-variant whitespace-nowrap">
-                  Commercial Score
+                  <span className="inline-flex items-center gap-1">
+                    Commercial Score
+                    <span
+                      tabIndex={0}
+                      aria-label="How the commercial score is calculated"
+                      className="relative group text-outline hover:text-on-surface focus:text-on-surface cursor-help outline-none"
+                    >
+                      <Icon name="info" className="text-[14px]" />
+                      <CommercialScorePopover />
+                    </span>
+                  </span>
                 </th>
                 <th className="p-3 text-label-caps text-on-surface-variant whitespace-nowrap text-right">
                   Action
@@ -361,6 +375,109 @@ export default function Catalog() {
   );
 }
 
+function MarketValuePopover() {
+  return (
+    <div
+      role="tooltip"
+      className="pointer-events-none absolute right-0 top-full mt-2 w-80 p-4 z-20 rounded-lg border border-outline-variant bg-surface-container-lowest shadow-float text-left opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 group-focus-within:opacity-100 group-focus-within:translate-y-0 transition-all duration-150"
+    >
+      <p className="text-label-caps text-on-surface mb-2">
+        How this is calculated
+      </p>
+      <p className="text-body-sm text-on-surface-variant mb-3 font-mono leading-relaxed">
+        For each non-restricted doc:
+        <br />
+        <span className="text-on-surface">
+          value = base[type] × (score ≥ 70 ? 1.5 : 1)
+        </span>
+      </p>
+
+      <p className="text-label-caps text-on-surface-variant mb-1">
+        Base price per doc
+      </p>
+      <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 text-body-sm font-mono mb-3">
+        {Object.entries(ESTIMATED_VALUE_PER_DOC).map(([type, price]) => (
+          <div key={type} className="contents">
+            <dt className="text-on-surface-variant">{type}</dt>
+            <dd className="text-on-surface text-right">${price}</dd>
+          </div>
+        ))}
+      </dl>
+
+      <p className="text-label-caps text-on-surface-variant mb-1">
+        Anchored to 2024–25 deals
+      </p>
+      <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 text-body-sm mb-3">
+        {VALUE_ANCHORS.map((a) => (
+          <div key={a.label} className="contents">
+            <dt className="text-on-surface-variant truncate">{a.label}</dt>
+            <dd className="text-on-surface font-mono text-right whitespace-nowrap">
+              {a.price}
+            </dd>
+          </div>
+        ))}
+      </dl>
+
+      <p className="text-label-sm text-outline italic">
+        Midpoints, ±2× uncertainty. Restricted docs excluded.
+      </p>
+    </div>
+  );
+}
+
+function CommercialScorePopover() {
+  return (
+    <div
+      role="tooltip"
+      className="pointer-events-none absolute right-0 top-full mt-2 w-96 p-4 z-20 rounded-lg border border-outline-variant bg-surface-container-lowest shadow-float text-left whitespace-normal opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 group-focus-within:opacity-100 group-focus-within:translate-y-0 transition-all duration-150 normal-case"
+    >
+      <p className="text-label-caps text-on-surface mb-2">
+        How this is calculated
+      </p>
+      <p className="text-body-sm text-on-surface-variant mb-3 leading-relaxed">
+        A 0–100 score the labeling LLM assigns each doc for AI-training
+        licensing value, weighing:
+      </p>
+      <ul className="text-body-sm text-on-surface-variant space-y-1 mb-3 list-disc pl-4">
+        <li>
+          <span className="text-on-surface">Content type</span> — research
+          papers &amp; grants &gt; faculty pubs &gt; generic
+        </li>
+        <li>
+          <span className="text-on-surface">Methodology specificity</span> —
+          named methods are labelable, vague ones aren&apos;t
+        </li>
+        <li>
+          <span className="text-on-surface">Novelty</span> of the source-grounded
+          claim
+        </li>
+        <li>
+          <span className="text-on-surface">Evidence strength</span> &amp;
+          citation completeness
+        </li>
+        <li>
+          <span className="text-on-surface">Compliance</span> — restricted docs
+          score near zero
+        </li>
+      </ul>
+
+      <p className="text-label-caps text-on-surface-variant mb-1">Thresholds</p>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-body-sm font-mono mb-3">
+        <dt className="text-secondary">≥ 80</dt>
+        <dd className="text-on-surface-variant">high — highlighted green</dd>
+        <dt className="text-on-surface">≥ 70</dt>
+        <dd className="text-on-surface-variant">
+          license-ready, 1.5× value premium
+        </dd>
+      </dl>
+
+      <p className="text-label-sm text-outline italic">
+        Set during the CRITIQUE/REFINE passes; see docs/03.
+      </p>
+    </div>
+  );
+}
+
 function FilterPill({
   icon,
   label,
@@ -388,7 +505,7 @@ function FilterPill({
 }
 
 function LabelModal({ docId, onClose }: { docId: string; onClose: () => void }) {
-  const detail = useApi(() => api.document(docId), [docId]);
+  const detail = useApi(() => api.document(docId), [docId], { cacheKey: `doc:${docId}` });
   const doc = detail.data?.document;
   const catalog = detail.data?.catalog;
   const label = detail.data?.label;

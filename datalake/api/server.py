@@ -10,17 +10,36 @@ process across origins, so CORS is open by default for any localhost origin.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import sqlite3
+import time
 import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from aiohttp import web
+from loguru import logger
 
 from datalake.config import load_settings
+from datalake.inference.accounting import HUMAN_LABELER_PRICING_PER_DOC_USD
+
+# Tracks whether the agent loop is currently executing inside this server process.
+# aiohttp is single-threaded so a plain dict is safe — only one coroutine mutates it
+# at a time. Set by handle_start_loop, cleared in _run_loop_background's finally.
+_LOOP_STATE: dict[str, Any] = {
+    "running": False,
+    "run_id": None,
+    "started_at": None,
+    "total_docs": 0,
+    # IDs of the docs in this loop's selection, in the order the user picked
+    # them. Used by /api/active-traces so the trace grid can show all queued
+    # docs (still INGESTED) alongside the one currently RUNNING, advancing
+    # left→right as each completes.
+    "doc_ids": [],
+}
 
 # File suffixes the friend's ingest parser actually understands. Anything else
 # is rejected up front so users get a useful error instead of a silent skip.
@@ -511,66 +530,242 @@ async def handle_export_sample(request: web.Request) -> web.Response:
     return web.json_response({"sample": pretty, "available": True})
 
 
+def _resolve_counters_run_id(request: web.Request) -> str | None:
+    """Run picker for counters: explicit ?run_id wins, else newest run with
+    inference_calls (matches /api/active-traces' picker so the two surfaces
+    can't disagree on which run is "current"), else fall back to the
+    document-bearing resolver so fresh uploads still produce a valid id.
+    """
+    explicit = request.query.get("run_id")
+    if explicit:
+        return explicit
+    latest = _read_one(
+        "SELECT run_id FROM inference_calls ORDER BY started_at DESC LIMIT 1"
+    )
+    if latest:
+        return latest["run_id"]
+    return _resolve_run_id(request)
+
+
+def _compute_counters(run_id: str) -> dict[str, Any]:
+    """Live-sum counters from inference_calls + documents.
+
+    Canonical source for the Dashboard hero — kept in lockstep with the
+    Ingestion page's /api/active-traces metrics strip. Reads:
+
+      • inference_calls → wafer_usd + gpt4_equivalent_usd (per-call, live)
+      • documents       → docs_done / docs_failed / docs_partial counts
+      • documents × catalog content_type × HUMAN_LABELER_PRICING_PER_DOC_USD
+                       → human_labeler_equivalent_usd (per-doc rate)
+      • dashboard_counters.avg_overall_confidence → confidence dial
+        (no per-doc source for this one; it's the running mean the loop
+        writes on doc-done. Stays slightly behind during a run.)
+    """
+    call_rows = _read(
+        "SELECT provider, cost_basis, cost_micro_usd FROM inference_calls "
+        "WHERE run_id=? AND status IN ('OK','RETRIED')",
+        (run_id,),
+    )
+    wafer_micro = sum(
+        int(r["cost_micro_usd"]) for r in call_rows if r["provider"] == "wafer"
+    )
+    gpt4_micro = sum(
+        int(r["cost_micro_usd"]) for r in call_rows
+        if r["provider"] == "openai" and r["cost_basis"] == "estimated"
+    )
+
+    doc_rows = _read(
+        "SELECT d.status, l.partial AS label_partial, "
+        "       COALESCE(c.content_type, d.content_type_guess, 'other') AS content_type "
+        "FROM documents d "
+        "LEFT JOIN label_payloads l  ON l.doc_id = d.id "
+        "LEFT JOIN catalog_records c ON c.doc_id = d.id "
+        "WHERE d.run_id=?",
+        (run_id,),
+    )
+    docs_done = sum(
+        1 for d in doc_rows if d["status"] == "DONE" and not d["label_partial"]
+    )
+    docs_partial = sum(
+        1 for d in doc_rows if d["status"] == "DONE" and d["label_partial"]
+    )
+    docs_failed = sum(1 for d in doc_rows if d["status"] == "FAILED")
+
+    # Per-doc Surge/Scale rate × completed docs. Mirrors increment_human_labeler_foil's
+    # accounting (only fires on DONE in the loop), so a partial/failed doc still
+    # counts against the human-labeler foil because a human reviewer would have
+    # been paid regardless.
+    human_micro = 0
+    for d in doc_rows:
+        if d["status"] not in ("DONE", "FAILED"):
+            continue
+        ct = d["content_type"] or "other"
+        rate = HUMAN_LABELER_PRICING_PER_DOC_USD.get(
+            ct, HUMAN_LABELER_PRICING_PER_DOC_USD["other"]
+        )
+        human_micro += int(rate * 1_000_000)
+
+    conf_row = _read_one(
+        "SELECT avg_overall_confidence FROM dashboard_counters WHERE run_id=?",
+        (run_id,),
+    )
+    avg_conf = float(conf_row["avg_overall_confidence"]) if conf_row else 0.0
+
+    return {
+        "run_id": run_id,
+        "docs_done": docs_done,
+        "docs_failed": docs_failed,
+        "docs_partial": docs_partial,
+        "wafer_usd": wafer_micro / 1_000_000,
+        "gpt4_equivalent_usd": gpt4_micro / 1_000_000,
+        "human_labeler_equivalent_usd": human_micro / 1_000_000,
+        "avg_overall_confidence": avg_conf,
+        "cost_ratio_vs_gpt4": (gpt4_micro / wafer_micro) if wafer_micro else None,
+        "cost_ratio_vs_human": (human_micro / wafer_micro) if wafer_micro else None,
+    }
+
+
 async def handle_counters(request: web.Request) -> web.Response:
-    """Live counters for the Dashboard hero (docs done, costs, avg confidence)."""
-    run_id = _resolve_run_id(request)
+    """Live counters for the Dashboard hero (docs done, costs, avg confidence).
+
+    Canonicalised on the live inference_calls + documents aggregates so the
+    Dashboard agrees with the Ingestion page's metrics strip rather than
+    lagging behind the per-doc-done dashboard_counters roll-up.
+    """
+    run_id = _resolve_counters_run_id(request)
     if run_id is None:
         return web.json_response(_empty_counters())
-    row = _read_one(
-        "SELECT docs_done, docs_failed, docs_partial, "
-        "       total_wafer_micro_usd, total_gpt4_equivalent_micro_usd, "
-        "       total_human_labeler_equivalent_micro_usd, "
-        "       avg_overall_confidence "
-        "FROM dashboard_counters WHERE run_id=?",
-        (run_id,),
-    )
-    if row is None:
-        return web.json_response(_empty_counters() | {"run_id": run_id})
-    wafer = int(row["total_wafer_micro_usd"])
-    gpt4 = int(row["total_gpt4_equivalent_micro_usd"])
-    human = int(row["total_human_labeler_equivalent_micro_usd"])
-    return web.json_response(
-        {
-            "run_id": run_id,
-            "docs_done": int(row["docs_done"]),
-            "docs_failed": int(row["docs_failed"]),
-            "docs_partial": int(row["docs_partial"]),
-            "wafer_usd": wafer / 1_000_000,
-            "gpt4_equivalent_usd": gpt4 / 1_000_000,
-            "human_labeler_equivalent_usd": human / 1_000_000,
-            "avg_overall_confidence": float(row["avg_overall_confidence"]),
-            "cost_ratio_vs_gpt4": (gpt4 / wafer) if wafer else None,
-            "cost_ratio_vs_human": (human / wafer) if wafer else None,
-        }
-    )
+    return web.json_response(_compute_counters(run_id))
 
 
-async def handle_active_trace(request: web.Request) -> web.Response:
-    """Pick the most-active doc and return its trace tree for the Dashboard visualiser.
+_PASS_ORDER = ["READ", "PROPOSE", "CRITIQUE", "REFINE", "VOTE", "ENRICH"]
 
-    "Most-active" = a RUNNING doc if any, else the most-recently-finished one. Returns
-    one entry per pass (READ/PROPOSE/CRITIQUE/REFINE/VOTE/ENRICH) summarised across
-    its proposal_idx fan-out, in the shape the Dashboard's LoopStep renders.
+
+def _percentile(sorted_vals: list[int], pct: float) -> int | None:
+    """Nearest-rank percentile on an already-sorted list. Returns None if empty."""
+    if not sorted_vals:
+        return None
+    idx = max(0, min(len(sorted_vals) - 1, int(round((pct / 100.0) * (len(sorted_vals) - 1)))))
+    return int(sorted_vals[idx])
+
+
+def _compute_loop_metrics(run_id: str | None) -> dict[str, Any]:
+    """Aggregate inference_calls for the supplied run into a value-of-Wafer stat strip.
+
+    Computes per-call latency percentiles, output throughput, an estimated TTFT
+    (linear-regression intercept of latency vs output tokens — honest enough for
+    a demo overlay, marked "~" in the UI), and the Wafer-vs-GPT-4 cost compare
+    the foil writer (`insert_gpt4_foil`) already populates row-for-row.
+
+    Returns a zero-shape with `available: false` when the run has no calls yet,
+    so the UI can hide the strip until there's something worth bragging about.
     """
-    run_id = _resolve_run_id(request)
+    empty: dict[str, Any] = {
+        "available": False,
+        "calls": 0,
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "latency_p50_ms": None,
+        "latency_p95_ms": None,
+        "ttft_ms": None,
+        "tokens_per_sec": None,
+        "wafer_usd": 0.0,
+        "gpt4_usd": 0.0,
+        "savings_x": None,
+    }
     if run_id is None:
-        return web.json_response({"available": False})
-    doc = _read_one(
-        "SELECT id, source_path FROM documents WHERE run_id=? "
-        "AND status IN ('RUNNING','DONE') "
-        "ORDER BY CASE WHEN status='RUNNING' THEN 0 ELSE 1 END, ingested_at DESC LIMIT 1",
+        return empty
+    rows = _read(
+        "SELECT provider, cost_basis, tokens_in, tokens_out, cost_micro_usd, latency_ms "
+        "FROM inference_calls WHERE run_id=? AND status IN ('OK','RETRIED')",
         (run_id,),
     )
-    if doc is None:
-        return web.json_response({"available": False})
-    doc_id = doc["id"]
+    if not rows:
+        return empty
+
+    # Latency / throughput come from real Wafer calls only — the openai foil
+    # rows are estimates with latency_ms=0 and would skew every percentile.
+    wafer_calls = [r for r in rows if r["provider"] == "wafer" and r["latency_ms"] > 0]
+    wafer_usd_micro = sum(r["cost_micro_usd"] for r in rows if r["provider"] == "wafer")
+    gpt4_usd_micro = sum(
+        r["cost_micro_usd"] for r in rows
+        if r["provider"] == "openai" and r["cost_basis"] == "estimated"
+    )
+    tokens_in = sum(r["tokens_in"] for r in rows if r["provider"] == "wafer")
+    tokens_out = sum(r["tokens_out"] for r in rows if r["provider"] == "wafer")
+
+    p50: int | None = None
+    p95: int | None = None
+    ttft_ms: int | None = None
+    tps_median: float | None = None
+    if wafer_calls:
+        latencies = sorted(int(r["latency_ms"]) for r in wafer_calls)
+        p50 = _percentile(latencies, 50)
+        p95 = _percentile(latencies, 95)
+
+        # Per-call output throughput; median is more robust than mean for the
+        # long-tailed distribution we get when one call streams a large payload.
+        tps = sorted(
+            r["tokens_out"] / (r["latency_ms"] / 1000.0)
+            for r in wafer_calls
+            if r["tokens_out"] > 0
+        )
+        if tps:
+            tps_median = float(tps[len(tps) // 2])
+
+        # TTFT estimate via OLS: latency_ms ≈ a + b * tokens_out, intercept a is
+        # the queue + first-token cost. Only show when we have ≥3 calls and the
+        # design matrix isn't degenerate (all calls same output length).
+        n = len(wafer_calls)
+        if n >= 3:
+            sx = sum(r["tokens_out"] for r in wafer_calls)
+            sy = sum(r["latency_ms"] for r in wafer_calls)
+            sxy = sum(r["tokens_out"] * r["latency_ms"] for r in wafer_calls)
+            sxx = sum(r["tokens_out"] ** 2 for r in wafer_calls)
+            denom = n * sxx - sx * sx
+            if denom > 0:
+                b = (n * sxy - sx * sy) / denom
+                a = (sy - b * sx) / n
+                ttft_ms = max(0, int(a))
+
+    wafer_usd = wafer_usd_micro / 1_000_000
+    gpt4_usd = gpt4_usd_micro / 1_000_000
+    savings_x = (gpt4_usd / wafer_usd) if wafer_usd > 0 else None
+
+    return {
+        "available": True,
+        "calls": len(rows),
+        "tokens_in": tokens_in,
+        "tokens_out": tokens_out,
+        "latency_p50_ms": p50,
+        "latency_p95_ms": p95,
+        "ttft_ms": ttft_ms,
+        "tokens_per_sec": round(tps_median, 1) if tps_median is not None else None,
+        "wafer_usd": round(wafer_usd, 6),
+        "gpt4_usd": round(gpt4_usd, 6),
+        "savings_x": round(savings_x, 1) if savings_x is not None else None,
+    }
+
+
+def _passes_for_doc(doc_id: str, doc_status: str = "DONE") -> list[dict[str, Any]]:
+    """Aggregate trace_events for one doc into the 6-pass summary shape the UI uses.
+
+    `doc_status` is the document's overall lifecycle state (INGESTED|RUNNING|DONE|FAILED).
+    We need it because trace_events are only written *after* a proposal completes —
+    so a fast pass can finish entirely between two polling intervals and never be
+    observed as "active". For RUNNING docs we therefore override the natural
+    event-count state so the spinner stays on the pass that's currently in flight.
+
+    Failed-state rule: a pass with ANY OK events is "done" (partial failure is
+    fine — the loop moved past it). Only when every event in a pass failed do
+    we mark the pass itself as "failed" — so e.g. a CRITIQUE with 2 accepts +
+    1 reject reads as done, not stuck.
+    """
     events = _read(
-        'SELECT "pass" AS pass_, status, proposal_idx, started_at, ended_at '
+        'SELECT "pass" AS pass_, status, started_at, ended_at '
         "FROM trace_events WHERE doc_id=? ORDER BY started_at",
         (doc_id,),
     )
-    # Group by pass, aggregate fan-out width.
-    order = ["READ", "PROPOSE", "CRITIQUE", "REFINE", "VOTE", "ENRICH"]
     by_pass: dict[str, dict[str, Any]] = {}
     for ev in events:
         p = ev["pass_"]
@@ -587,18 +782,39 @@ async def handle_active_trace(request: web.Request) -> web.Response:
             bucket["max_t"] = (
                 ev["ended_at"] if bucket["max_t"] is None else max(bucket["max_t"], ev["ended_at"])
             )
-    passes = []
-    for p in order:
+
+    # While the doc is RUNNING, peg "active" to the latest pass that already has
+    # events — that's the one currently fanning out — or READ if nothing has
+    # been recorded yet. This guarantees a continuous spinner even when a pass
+    # transitions faster than the 2s poll interval.
+    active_idx = -1
+    if doc_status == "RUNNING":
+        last_with_events = -1
+        for i, p in enumerate(_PASS_ORDER):
+            if p in by_pass:
+                last_with_events = i
+        active_idx = max(last_with_events, 0)
+
+    passes: list[dict[str, Any]] = []
+    for i, p in enumerate(_PASS_ORDER):
         bucket = by_pass.get(p)
         if bucket is None:
-            passes.append({"pass": p, "state": "pending", "ok": 0, "failed": 0, "latency_ms": None})
+            state = "active" if i == active_idx else "pending"
+            passes.append({"pass": p, "state": state, "ok": 0, "failed": 0, "latency_ms": None})
             continue
         latency_ms = (
             int((bucket["max_t"] - bucket["min_t"]) * 1000)
             if bucket["min_t"] is not None and bucket["max_t"] is not None
             else None
         )
-        state = "done" if bucket["ok"] and not bucket["failed"] else "failed" if bucket["failed"] else "active"
+        if i == active_idx:
+            state = "active"
+        elif bucket["ok"] > 0:
+            state = "done"
+        elif bucket["failed"] > 0:
+            state = "failed"
+        else:
+            state = "active"
         passes.append(
             {
                 "pass": p,
@@ -608,14 +824,114 @@ async def handle_active_trace(request: web.Request) -> web.Response:
                 "latency_ms": latency_ms,
             }
         )
+    return passes
+
+
+async def handle_active_trace(request: web.Request) -> web.Response:
+    """Pick the most-active doc and return its trace tree for the Dashboard visualiser.
+
+    "Most-active" = a RUNNING doc if any, else the most-recently-finished one. Returns
+    one entry per pass (READ/PROPOSE/CRITIQUE/REFINE/VOTE/ENRICH) summarised across
+    its proposal_idx fan-out, in the shape the Dashboard's LoopStep renders.
+    """
+    # Prefer the loop's run_id while a loop is in flight so the tracker sticks to
+    # the run the user just started, even if a newer (empty) run gets created.
+    run_id = _LOOP_STATE["run_id"] if _LOOP_STATE["running"] else _resolve_run_id(request)
+    loop_fields = {
+        "loop_running": bool(_LOOP_STATE["running"]),
+        "loop_run_id": _LOOP_STATE["run_id"],
+        "loop_total_docs": int(_LOOP_STATE["total_docs"]),
+    }
+    if run_id is None:
+        return web.json_response({"available": False, **loop_fields})
+    doc = _read_one(
+        "SELECT id, source_path, status FROM documents WHERE run_id=? "
+        "AND status IN ('RUNNING','DONE') "
+        "ORDER BY CASE WHEN status='RUNNING' THEN 0 ELSE 1 END, ingested_at DESC LIMIT 1",
+        (run_id,),
+    )
+    if doc is None:
+        return web.json_response({"available": False, **loop_fields})
     return web.json_response(
         {
             "available": True,
-            "doc_id": doc_id,
+            "doc_id": doc["id"],
             "filename": Path(doc["source_path"]).name,
-            "passes": passes,
+            "passes": _passes_for_doc(doc["id"], doc["status"]),
+            **loop_fields,
         }
     )
+
+
+async def handle_active_traces(request: web.Request) -> web.Response:
+    """Multi-trace variant: up to 4 traces (the wafer concurrency cap).
+
+    Used by the Ingestion page's Agent Loop Progress section. Two modes:
+
+    1. Loop is running — show the user's selected docs in their picker order,
+       including ones still queued (INGESTED). The grid renders left→right
+       and each card lights up as the runner moves to it. Capped at 4.
+    2. Loop is idle — show the 4 most-recent RUNNING/DONE/FAILED docs across
+       all runs so a freshly-finished single-doc loop still leaves a full row
+       of historical traces visible.
+    """
+    loop_running = bool(_LOOP_STATE["running"])
+    loop_fields = {
+        "loop_running": loop_running,
+        "loop_run_id": _LOOP_STATE["run_id"],
+        "loop_total_docs": int(_LOOP_STATE["total_docs"]),
+    }
+
+    # Metrics follow the active loop run when one is in flight; otherwise reach
+    # for the most-recent run that actually has inference_calls so the strip
+    # stays populated after a loop ends (the trace cards do the same).
+    if loop_running:
+        metrics_run_id = _LOOP_STATE["run_id"]
+    else:
+        latest = _read_one(
+            "SELECT run_id FROM inference_calls ORDER BY started_at DESC LIMIT 1"
+        )
+        metrics_run_id = latest["run_id"] if latest else None
+    metrics = _compute_loop_metrics(metrics_run_id)
+
+    if loop_running and _LOOP_STATE["doc_ids"]:
+        # Take the first 4 in picker order — the runner processes serially so
+        # later docs in the list won't display anyway until earlier ones finish.
+        wanted = list(_LOOP_STATE["doc_ids"])[:4]
+        placeholders = ",".join("?" * len(wanted))
+        rows = _read(
+            f"SELECT id, source_path, status FROM documents WHERE id IN ({placeholders})",
+            tuple(wanted),
+        )
+        by_id = {r["id"]: r for r in rows}
+        ordered = [by_id[d] for d in wanted if d in by_id]
+        traces = [
+            {
+                "doc_id": r["id"],
+                "filename": Path(r["source_path"]).name,
+                "doc_status": r["status"],
+                "passes": _passes_for_doc(r["id"], r["status"]),
+            }
+            for r in ordered
+        ]
+        return web.json_response({"traces": traces, "metrics": metrics, **loop_fields})
+
+    rows = _read(
+        "SELECT id, source_path, status, ingested_at FROM documents "
+        "WHERE status IN ('RUNNING','DONE','FAILED') "
+        "ORDER BY CASE status WHEN 'RUNNING' THEN 0 WHEN 'FAILED' THEN 1 ELSE 2 END, "
+        "         ingested_at DESC LIMIT 4"
+    )
+    traces = [
+        {
+            "doc_id": r["id"],
+            "filename": Path(r["source_path"]).name,
+            "doc_status": r["status"],
+            "passes": _passes_for_doc(r["id"], r["status"]),
+        }
+        for r in rows
+    ]
+    return web.json_response({"traces": traces, "metrics": metrics, **loop_fields})
 
 
 async def handle_eval_pair(request: web.Request) -> web.Response:
@@ -834,6 +1150,175 @@ async def handle_document_detail(request: web.Request) -> web.Response:
     return web.json_response({"document": document, "catalog": catalog, "label": label})
 
 
+async def handle_unprocessed_documents(_request: web.Request) -> web.Response:
+    """GET /api/documents/unprocessed — every INGESTED doc across all runs.
+
+    Powers the doc-picker modal on the Ingestion page. Returns the newest run's
+    id separately so the frontend can pre-select it. Sorted newest run first,
+    then by ingest order within the run.
+    """
+    rows = _read(
+        "SELECT d.id, d.run_id, d.source_path, d.content_type_guess, d.ingested_at, "
+        "       r.started_at AS run_started_at "
+        "FROM documents d JOIN runs r ON r.id = d.run_id "
+        "WHERE d.status = 'INGESTED' "
+        "ORDER BY r.started_at DESC, d.ingested_at ASC"
+    )
+    docs = [
+        {
+            "id": r["id"],
+            "run_id": r["run_id"],
+            "filename": Path(r["source_path"]).name,
+            "content_type": r["content_type_guess"],
+            "ingested_at": r["ingested_at"],
+            "run_started_at": r["run_started_at"],
+        }
+        for r in rows
+    ]
+    newest_run_id = docs[0]["run_id"] if docs else None
+    return web.json_response({"newest_run_id": newest_run_id, "documents": docs})
+
+
+async def handle_start_loop(request: web.Request) -> web.Response:
+    """POST /api/loop/start — kick off the 6-pass agent loop on selected docs.
+
+    Body: {"doc_ids": ["uuid", ...]}. Returns 202 on accepted, 409 if a loop is
+    already running, 200 with "nothing_to_do" if none of the supplied ids are
+    still INGESTED (e.g. a previous loop finished them).
+    """
+    if _LOOP_STATE["running"]:
+        return web.json_response(
+            {"error": "loop already running", "run_id": _LOOP_STATE["run_id"]},
+            status=409,
+        )
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({"error": "invalid JSON body"}, status=400)
+    doc_ids = payload.get("doc_ids") if isinstance(payload, dict) else None
+    if not isinstance(doc_ids, list) or not doc_ids or not all(isinstance(x, str) for x in doc_ids):
+        return web.json_response({"error": "doc_ids must be a non-empty list of strings"}, status=400)
+
+    # Filter to currently-INGESTED rows so a stale picker selection can't replay
+    # docs that already DONE/FAILED in the meantime.
+    placeholders = ",".join("?" * len(doc_ids))
+    rows = _read(
+        f"SELECT id, run_id, source_path, source_hash, content_type_guess, ingested_at "
+        f"FROM documents WHERE id IN ({placeholders}) AND status='INGESTED'",
+        tuple(doc_ids),
+    )
+    if not rows:
+        return web.json_response(
+            {"status": "nothing_to_do", "message": "No queued documents matched. They may already be processed."}
+        )
+
+    # Snapshot rows as dicts before handing to the background coroutine so we
+    # don't carry sqlite3.Row objects (tied to a closed connection) into asyncio.
+    row_dicts = [dict(r) for r in rows]
+    run_id = row_dicts[0]["run_id"]
+
+    _LOOP_STATE.update(
+        running=True,
+        run_id=run_id,
+        started_at=time.time(),
+        total_docs=len(row_dicts),
+        # Preserve the user's picker order so the trace grid renders L→R in
+        # the same order as the queue actually executes.
+        doc_ids=[r["id"] for r in row_dicts],
+    )
+    asyncio.create_task(_run_loop_background(row_dicts, run_id))
+    return web.json_response(
+        {"status": "started", "doc_count": len(row_dicts), "run_id": run_id},
+        status=202,
+    )
+
+
+async def _run_loop_background(rows: list[dict], run_id: str) -> None:
+    """Background task: re-parse each doc, fan out through run_doc, clean up state.
+
+    Mirrors the CLI's `datalake run` flow (see datalake/cli.py `_go`). Kept inline
+    here rather than imported because the CLI is typer-bound and pulls stdin/exit
+    side effects we don't want inside an aiohttp request lifecycle.
+    """
+    try:
+        from datalake.inference.accounting import BudgetExceededError
+        from datalake.inference.base import GlobalSemaphores
+        from datalake.inference.wafer import WaferClient
+        from datalake.ingest.parser import _parse_one
+        from datalake.loop.state_machine import run_doc
+        from datalake.storage.db import connect
+        from datalake.storage.models import Document
+
+        settings = load_settings()
+        if not settings.wafer_api_key:
+            logger.error("WAFER_API_KEY not set; cannot start loop")
+            return
+
+        heuristics_yaml = (
+            settings.paths.heuristics.read_text() if settings.paths.heuristics.exists() else ""
+        )
+        sems = GlobalSemaphores(
+            wafer=settings.wafer_concurrency,
+            openai=settings.openai_concurrency,
+            judge=settings.judge_concurrency,
+        )
+        client = WaferClient(
+            api_key=settings.wafer_api_key,
+            base_url=settings.wafer_base_url,
+            model=settings.wafer_loop_model,
+            semaphores=sems,
+        )
+        per_doc_sem = asyncio.Semaphore(settings.per_doc_concurrency)
+        # Wafer's 1-at-a-time tier makes parallel doc processing pointless —
+        # all calls serialise on the wafer client semaphore anyway, and
+        # interleaving fan-outs across docs muddles the trace visualizer.
+        # Process docs strictly left→right; the wall clock is the same.
+        doc_sem = asyncio.Semaphore(1)
+
+        async with connect(settings.paths.sqlite_db) as conn:
+            async def _process(row: dict) -> None:
+                try:
+                    text, refs = _parse_one(Path(row["source_path"]))
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(f"re-parse failed for {row['source_path']}: {exc}")
+                    return
+                doc = Document(
+                    id=row["id"],
+                    run_id=run_id,
+                    source_path=row["source_path"],
+                    source_hash=row["source_hash"],
+                    content_type_guess=row["content_type_guess"],
+                    ingested_at=row["ingested_at"],
+                    status="INGESTED",
+                    text=text,
+                    references=refs,
+                )
+                await run_doc(
+                    doc, 0, client, heuristics_yaml, settings, per_doc_sem,
+                    conn=conn, run_id=run_id,
+                )
+
+            async def _guarded(row: dict) -> None:
+                async with doc_sem:
+                    await _process(row)
+
+            results = await asyncio.gather(
+                *(_guarded(r) for r in rows), return_exceptions=True
+            )
+            for r in results:
+                if isinstance(r, BudgetExceededError):
+                    logger.warning(f"agent loop paused: {r}")
+                    break
+                if isinstance(r, Exception):
+                    logger.opt(exception=r).error("doc failed in agent loop")
+    except Exception:  # noqa: BLE001
+        logger.exception("agent loop background task crashed")
+    finally:
+        _LOOP_STATE.update(
+            running=False, run_id=None, started_at=None, total_docs=0, doc_ids=[]
+        )
+
+
 # ---------------------------------------------------------------------------
 # Display helpers — pure functions, no I/O.
 # ---------------------------------------------------------------------------
@@ -923,12 +1408,15 @@ def build_app() -> web.Application:
     app.router.add_get("/api/export/sample", handle_export_sample)
     app.router.add_get("/api/counters", handle_counters)
     app.router.add_get("/api/active-trace", handle_active_trace)
+    app.router.add_get("/api/active-traces", handle_active_traces)
     app.router.add_get("/api/eval/pair", handle_eval_pair)
     app.router.add_get("/api/ingestion/format-distribution", handle_format_distribution)
     app.router.add_get("/api/export/download", handle_export_download)
     app.router.add_get("/api/document/{doc_id}", handle_document_detail)
     app.router.add_delete("/api/runs/{run_id}", handle_delete_run)
     app.router.add_post("/api/uploads", handle_upload)
+    app.router.add_get("/api/documents/unprocessed", handle_unprocessed_documents)
+    app.router.add_post("/api/loop/start", handle_start_loop)
     # Wildcard OPTIONS so the CORS preflight succeeds for any /api/* path.
     app.router.add_route("OPTIONS", "/{tail:.*}", lambda _r: web.Response(status=204))
     return app

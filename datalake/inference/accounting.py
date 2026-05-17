@@ -21,12 +21,10 @@ GPT4_PRICING: dict[str, dict[str, float]] = {
     "gpt-4-turbo": {"input_per_million": 10.0, "output_per_million": 30.0},
 }
 
-# Wafer pricing — PLACEHOLDER. Update when actual Wafer Serverless pricing is known.
-# The thesis (PRD §3) is "fractions of a cent per document" — chosen here to fit that
-# envelope across an 11-call agent loop on ~3k-token inputs (~$0.0001 per call).
+# Wafer Serverless Qwen pricing (per 1M tokens).
 WAFER_PRICING: dict[str, dict[str, float]] = {
-    "qwen-3.5-397b": {"input_per_million": 0.10, "output_per_million": 0.20},
-    "qwen-3.5-strong": {"input_per_million": 0.30, "output_per_million": 0.60},
+    "qwen-3.5-397b": {"input_per_million": 0.60, "output_per_million": 3.60},
+    "qwen-3.5-strong": {"input_per_million": 0.60, "output_per_million": 3.60},
 }
 
 # Human-labeler foil — Surge/Scale midpoint per PRD §3 (~$30–$60/paper expert annotation).

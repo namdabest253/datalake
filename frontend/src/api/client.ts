@@ -62,9 +62,35 @@ export type PassSummary = {
   failed: number;
   latency_ms: number | null;
 };
+export type LoopState = {
+  loop_running: boolean;
+  loop_run_id: string | null;
+  loop_total_docs: number;
+};
 export type ActiveTrace =
-  | { available: true; doc_id: string; filename: string; passes: PassSummary[] }
-  | { available: false };
+  | ({ available: true; doc_id: string; filename: string; passes: PassSummary[] } & LoopState)
+  | ({ available: false } & LoopState);
+
+export type TraceItem = {
+  doc_id: string;
+  filename: string;
+  doc_status: "INGESTED" | "RUNNING" | "DONE" | "FAILED";
+  passes: PassSummary[];
+};
+export type LoopMetrics = {
+  available: boolean;
+  calls: number;
+  tokens_in: number;
+  tokens_out: number;
+  latency_p50_ms: number | null;
+  latency_p95_ms: number | null;
+  ttft_ms: number | null;
+  tokens_per_sec: number | null;
+  wafer_usd: number;
+  gpt4_usd: number;
+  savings_x: number | null;
+};
+export type ActiveTraces = { traces: TraceItem[]; metrics: LoopMetrics } & LoopState;
 
 export type EvalRecordView = {
   content_type: string | null;
@@ -102,6 +128,22 @@ export type UploadResult = {
   rows_written: number;
   skipped: Array<{ name: string; reason: string }>;
 };
+
+export type UnprocessedDoc = {
+  id: string;
+  run_id: string;
+  filename: string;
+  content_type: string | null;
+  ingested_at: number;
+  run_started_at: number;
+};
+export type UnprocessedResponse = {
+  newest_run_id: string | null;
+  documents: UnprocessedDoc[];
+};
+export type StartLoopResponse =
+  | { status: "started"; doc_count: number; run_id: string }
+  | { status: "nothing_to_do"; message: string };
 
 export type DocumentDetail = {
   document: {
@@ -167,6 +209,8 @@ export const api = {
     getJSON<Counters>("/api/counters", runId ? { run_id: runId } : undefined),
   activeTrace: (runId?: string) =>
     getJSON<ActiveTrace>("/api/active-trace", runId ? { run_id: runId } : undefined),
+  activeTraces: (runId?: string) =>
+    getJSON<ActiveTraces>("/api/active-traces", runId ? { run_id: runId } : undefined),
   evalPair: (runId?: string, pairId?: string) =>
     getJSON<EvalPair>("/api/eval/pair", {
       ...(runId ? { run_id: runId } : {}),
@@ -196,6 +240,23 @@ export const api = {
       throw new Error(body.error ?? `upload: HTTP ${res.status}`);
     }
     return body as UploadResult;
+  },
+  unprocessedDocuments: () => getJSON<UnprocessedResponse>("/api/documents/unprocessed"),
+  startLoop: async (docIds: string[]): Promise<StartLoopResponse> => {
+    const url = new URL("/api/loop/start", BASE);
+    const res = await fetch(url.toString(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ doc_ids: docIds }),
+    });
+    const body = (await res.json().catch(() => ({}))) as
+      | StartLoopResponse
+      | { error?: string };
+    if (!res.ok) {
+      const err = (body as { error?: string }).error ?? `start loop: HTTP ${res.status}`;
+      throw new Error(err);
+    }
+    return body as StartLoopResponse;
   },
   /** Returns the direct download URL for the given export format. */
   exportDownloadUrl: (format: "jsonl" | "csv" | "card", runId?: string): string => {

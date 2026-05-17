@@ -33,15 +33,6 @@ export default function Landing() {
               Run Demo
               <Icon name="play_arrow" className="text-[18px]" />
             </Link>
-            <a
-              href="/PRD.md"
-              target="_blank"
-              rel="noreferrer"
-              className="border border-outline text-on-surface text-label-caps px-6 py-3 rounded flex items-center gap-2 hover:bg-surface-container transition-colors"
-            >
-              Read PRD
-              <Icon name="description" className="text-[18px]" />
-            </a>
           </div>
         </div>
 
@@ -69,15 +60,15 @@ export default function Landing() {
             </div>
             <div className="space-y-2 font-mono text-data-mono">
               <div className="flex justify-between">
-                <span className="text-on-surface-variant">Docs Processed</span>
-                <span className="text-on-surface">1,245,890</span>
+                <span className="text-on-surface-variant">Model</span>
+                <span className="text-on-surface">Qwen3-397B / Wafer</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-on-surface-variant">Speed</span>
-                <span className="text-secondary">4,200/sec</span>
+                <span className="text-on-surface-variant">Passes</span>
+                <span className="text-secondary">Propose → Vote → Enrich</span>
               </div>
               <div className="w-full bg-surface-container-high h-1.5 rounded-full mt-2 overflow-hidden">
-                <div className="bg-secondary h-full rounded-full w-[85%]" />
+                <div className="bg-secondary h-full rounded-full w-[85%] animate-pulse" />
               </div>
             </div>
           </div>
@@ -134,7 +125,7 @@ export default function Landing() {
             iconFilled
             iconClass="text-secondary"
             title="Datalake on Wafer"
-            cost="¢0.02"
+            cost="¢7"
             unit="/ paper"
             body="Customized inference passes. Specialized agent loops optimize for extreme cost-efficiency and academic precision."
             statusLabel="Status: Inference Ready"

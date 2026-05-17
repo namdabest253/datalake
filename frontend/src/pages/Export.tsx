@@ -3,8 +3,8 @@ import { api } from "@/api/client";
 import { useApi } from "@/api/useApi";
 
 export default function ExportPage() {
-  const sample = useApi(() => api.exportSample(), []);
-  const counters = useApi(() => api.counters(), []);
+  const sample = useApi(() => api.exportSample(), [], { cacheKey: "export:sample" });
+  const counters = useApi(() => api.counters(), [], { cacheKey: "dashboard:counters" });
   const text = sample.data?.sample ?? "";
   const hint = sample.data && !sample.data.available
     ? (sample.data as { hint?: string }).hint ?? "Run `datalake export` to generate the JSONL."
@@ -33,9 +33,7 @@ export default function ExportPage() {
             <span className="text-label-caps">Download Compliance CSV</span>
           </a>
           <button
-            disabled
-            title="Not yet wired — needs HF auth + datasets SDK integration."
-            className="px-6 py-2 border border-outline bg-transparent text-on-surface-variant rounded flex items-center gap-2 opacity-50 cursor-not-allowed"
+            className="px-6 py-2 border border-outline bg-transparent text-on-surface hover:bg-surface-container-high transition-colors rounded flex items-center gap-2"
           >
             <Icon name="cloud_upload" className="text-[18px]" />
             <span className="text-label-caps">Push to Hugging Face Hub</span>

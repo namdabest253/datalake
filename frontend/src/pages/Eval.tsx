@@ -3,8 +3,8 @@ import { api, type EvalRecordView } from "@/api/client";
 import { useApi } from "@/api/useApi";
 
 export default function Eval() {
-  const dims = useApi(() => api.evalDimensions(), []);
-  const pair = useApi(() => api.evalPair(), []);
+  const dims = useApi(() => api.evalDimensions(), [], { cacheKey: "eval:dimensions" });
+  const pair = useApi(() => api.evalPair(), [], { cacheKey: "eval:pair" });
   const evalRows = dims.data ?? [];
 
   // Derived verdict: mean dimension delta (Datalake − GPT-4) across all dims.
@@ -121,9 +121,19 @@ export default function Eval() {
 
       {/* Win rates */}
       <div className="col-span-12 mt-4 bg-surface-container-lowest border border-outline-variant rounded-lg p-6 shadow-sm">
-        <h4 className="text-label-caps text-on-surface-variant mb-6 border-b border-outline-variant pb-2">
-          Win Rates: Datalake vs Baseline ({benchmarked} dimension
-          {benchmarked === 1 ? "" : "s"})
+        <h4 className="text-label-caps text-on-surface-variant mb-6 border-b border-outline-variant pb-2 flex items-center gap-1">
+          <span>
+            Win Rates: Datalake vs Baseline ({benchmarked} dimension
+            {benchmarked === 1 ? "" : "s"})
+          </span>
+          <span
+            tabIndex={0}
+            aria-label="How win rates are calculated"
+            className="relative group text-outline hover:text-on-surface focus:text-on-surface cursor-help outline-none"
+          >
+            <Icon name="info" className="text-[14px]" />
+            <WinRatePopover judgeModel={pair.data?.available ? pair.data.judge_model : null} />
+          </span>
         </h4>
         <div className="space-y-6">
           {dims.loading && (
@@ -243,9 +253,12 @@ function RecordCard({
                     {record.methodology_named.map((m) =>
                       isDl ? <DataTag key={m}>{m}</DataTag> : <Tag key={m}>{m}</Tag>,
                     )}
-                    {record.methodology_freetext && (
-                      <Tag>{record.methodology_freetext.slice(0, 60)}</Tag>
-                    )}
+                    {record.methodology_freetext &&
+                      (isDl ? (
+                        <DataTag>{record.methodology_freetext.slice(0, 60)}</DataTag>
+                      ) : (
+                        <Tag>{record.methodology_freetext.slice(0, 60)}</Tag>
+                      ))}
                   </>
                 )}
               </div>
@@ -318,5 +331,67 @@ function DataTag({ children }: { children: React.ReactNode }) {
     <span className="font-mono text-data-mono text-secondary-fixed bg-primary-container px-2 py-1 border border-secondary/30 rounded">
       {children}
     </span>
+  );
+}
+
+function WinRatePopover({ judgeModel }: { judgeModel: string | null }) {
+  return (
+    <div
+      role="tooltip"
+      className="pointer-events-none absolute left-0 top-full mt-2 w-96 p-4 z-20 rounded-lg border border-outline-variant bg-surface-container-lowest shadow-float text-left whitespace-normal opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 group-focus-within:opacity-100 group-focus-within:translate-y-0 transition-all duration-150 normal-case"
+    >
+      <p className="text-label-caps text-on-surface mb-2">
+        How win rates are calculated
+      </p>
+      <p className="text-body-sm text-on-surface-variant mb-3 leading-relaxed">
+        For every document in the eval set, the Datalake agent loop and the
+        GPT-4 single-pass baseline each produce a record. The two records are
+        shuffled into a blinded A/B pair and handed to a{" "}
+        <span className="text-on-surface font-mono">
+          {judgeModel ?? "GLM"}
+        </span>{" "}
+        judge — a stronger Wafer-hosted model deliberately chosen to be
+        distinct from the producer model so it doesn&apos;t share its blind
+        spots.
+      </p>
+      <p className="text-body-sm text-on-surface-variant mb-3 leading-relaxed">
+        The GLM judge scores each side 1–5 on the six dimensions below. A
+        pair counts as a Datalake <em>win</em> on a dimension when its score
+        is strictly higher than the baseline&apos;s on that pair; ties are
+        excluded from the denominator.
+      </p>
+      <p className="text-label-caps text-on-surface-variant mb-1">
+        Scored dimensions
+      </p>
+      <ul className="text-body-sm text-on-surface-variant space-y-1 mb-3 list-disc pl-4">
+        <li>
+          <span className="text-on-surface">Methodology specificity</span> —
+          named techniques vs vague gestures
+        </li>
+        <li>
+          <span className="text-on-surface">Novelty claim accuracy</span> —
+          is the &quot;what&apos;s new&quot; claim defensible
+        </li>
+        <li>
+          <span className="text-on-surface">Evidence quality</span> —
+          grounded in the document, not invented
+        </li>
+        <li>
+          <span className="text-on-surface">Citation completeness</span> —
+          references actually present in source
+        </li>
+        <li>
+          <span className="text-on-surface">Compliance correctness</span> —
+          IP / restriction flags applied properly
+        </li>
+        <li>
+          <span className="text-on-surface">Ownership defensibility</span> —
+          author / institution attribution
+        </li>
+      </ul>
+      <p className="text-label-sm text-outline italic">
+        Blinded A/B — judge never sees which record came from which engine.
+      </p>
+    </div>
   );
 }
