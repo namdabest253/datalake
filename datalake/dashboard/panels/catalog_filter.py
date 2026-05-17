@@ -10,7 +10,6 @@ import json
 
 import streamlit as st
 
-from datalake.dashboard._db import read
 from datalake.prompts.taxonomies import CommercialAction, ComplianceFlag
 
 # Per-doc estimated lifetime commercial value to AI labs as labeled training data.
@@ -58,8 +57,9 @@ def render(run_id: str) -> None:
           AND c.commercial_score >= ?
         ORDER BY c.commercial_score DESC
     """
-    from datalake.dashboard._db import db_path
     import sqlite3
+
+    from datalake.dashboard._db import db_path
 
     path = db_path()
     if not path.exists():

@@ -8,6 +8,7 @@ from . import (  # noqa: F401
     catalog_filter,
     cost_meter,
     document_stream,
+    export_artifacts,
     quality_metrics,
     side_by_side_eval,
 )

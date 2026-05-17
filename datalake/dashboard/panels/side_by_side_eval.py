@@ -68,6 +68,6 @@ def render(run_id: str) -> None:
         st.dataframe(table, hide_index=True, use_container_width=True)
 
     if win_rate >= 0.65:
-        st.success(f"Above PRD §9 target of 65% win rate.")
+        st.success("Above PRD §9 target of 65% win rate.")
     else:
-        st.warning(f"Below PRD §9 target of 65% win rate.")
+        st.warning("Below PRD §9 target of 65% win rate.")

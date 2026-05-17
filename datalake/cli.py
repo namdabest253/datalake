@@ -192,18 +192,132 @@ def eval_cmd(
     run_id: str | None = typer.Option(None, "--run-id"),
     dry_run: bool = typer.Option(False, "--dry-run"),
     judge_model: str | None = typer.Option(None, "--judge-model"),
+    seed: int | None = typer.Option(None, "--seed", help="Seed sampling + blinding randomness."),
 ) -> None:
-    """Run the side-by-side eval. GPT-4 actually executes here."""
-    raise NotImplementedError("TODO: wire to datalake.eval.harness")
+    """Run the side-by-side eval (loop vs single-pass baseline) and write a report.
+
+    No real GPT-4 spend — the "GPT-4 baseline" is a single-pass call against the
+    same Wafer family. Cost numbers for the GPT-4 column are estimated from token
+    counts × published GPT-4 rates. See docs/07-evaluation.md.
+    """
+    import uuid as _uuid
+
+    from datalake.eval.harness import make_semaphores, run_eval
+    from datalake.inference.judge import JudgeClient
+    from datalake.inference.wafer import WaferClient
+
+    settings = load_settings()
+    if judge_model is not None:
+        settings = settings.model_copy(update={"judge_model": judge_model})
+    if dry_run and n > 20:
+        n = 20
+
+    if not settings.wafer_api_key:
+        typer.echo("ERROR: WAFER_API_KEY not set. Configure .env.", err=True)
+        raise typer.Exit(1)
+    db_path = settings.paths.sqlite_db
+    if not db_path.exists():
+        typer.echo(
+            f"ERROR: no DB at {db_path}. Run `datalake ingest` + `datalake run` first.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    resolved_run_id = run_id or f"eval-{_uuid.uuid4().hex[:8]}"
+    heuristics_yaml = (
+        settings.paths.heuristics.read_text() if settings.paths.heuristics.exists() else ""
+    )
+
+    async def _go() -> None:
+        sems = make_semaphores(settings)
+        baseline_client = WaferClient(
+            api_key=settings.wafer_api_key,
+            base_url=settings.wafer_base_url,
+            model=settings.baseline_model,
+            semaphores=sems,
+        )
+        judge = JudgeClient(
+            api_key=settings.judge_api_key or settings.wafer_api_key,
+            base_url=settings.wafer_base_url,
+            model=settings.judge_model,
+            semaphores=sems,
+        )
+
+        report = await run_eval(
+            n=n,
+            run_id=resolved_run_id,
+            settings=settings,
+            baseline_client=baseline_client,
+            judge=judge,
+            heuristics_yaml=heuristics_yaml,
+            dry_run=dry_run,
+            seed=seed,
+        )
+
+        out_path = Path("./.datalake") / f"eval_report_{resolved_run_id}.json"
+        typer.echo(
+            f"run_id={resolved_run_id}  n={report['n_pairs']}  "
+            f"win_rate={report['win_rate'] * 100:.1f}%  "
+            f"cost_ratio={report['cost_ratio']:.3f}  "
+            f"report={out_path if not dry_run else '<dry-run>'}"
+        )
+        for dim, delta in report.get("dimension_deltas", {}).items():
+            typer.echo(f"  {dim}: {delta:+.2f}")
+
+    asyncio.run(_go())
 
 
 @app.command()
 def export(
-    run_id: str | None = typer.Option(None, "--run-id"),
+    run_id: str | None = typer.Option(None, "--run-id", help="Defaults to the most recent run."),
     out: Path = typer.Option(Path("./.datalake/export"), "--out"),
 ) -> None:
-    """Emit JSONL + catalog CSV + dataset_card.md."""
-    raise NotImplementedError("TODO: wire to datalake.export.jsonl/csv/dataset_card")
+    """Emit JSONL + catalog CSV + dataset_card.md for a completed run."""
+    from datalake.export.csv import export_catalog_csv
+    from datalake.export.dataset_card import render_dataset_card
+    from datalake.export.jsonl import export_jsonl
+    from datalake.storage.db import connect
+
+    settings = load_settings()
+    db_path = settings.paths.sqlite_db
+    if not db_path.exists():
+        typer.echo(f"ERROR: no DB at {db_path}.", err=True)
+        raise typer.Exit(1)
+
+    async def _go() -> None:
+        # Resolve run_id (default = most recent run).
+        resolved = run_id
+        async with connect(db_path) as conn:
+            if resolved is None:
+                row = await (await conn.execute(
+                    "SELECT id FROM runs ORDER BY started_at DESC LIMIT 1"
+                )).fetchone()
+                if row is None:
+                    typer.echo("ERROR: no runs in DB.", err=True)
+                    raise typer.Exit(1)
+                resolved = row[0]
+
+        out.mkdir(parents=True, exist_ok=True)
+        jsonl_path = out / f"{resolved}.jsonl"
+        csv_path = out / f"{resolved}-catalog.csv"
+        card_path = out / f"{resolved}-dataset_card.md"
+
+        n_jsonl = await export_jsonl(resolved, db_path, jsonl_path)
+        n_csv = await export_catalog_csv(resolved, db_path, csv_path)
+        await render_dataset_card(resolved, db_path, card_path)
+
+        typer.echo(
+            f"run_id={resolved}\n"
+            f"  jsonl: {jsonl_path}  ({n_jsonl} docs)\n"
+            f"  csv:   {csv_path}  ({n_csv} docs)\n"
+            f"  card:  {card_path}"
+        )
+        logger.info(
+            "export_complete run_id={} jsonl_rows={} csv_rows={} out={}",
+            resolved, n_jsonl, n_csv, out,
+        )
+
+    asyncio.run(_go())
 
 
 @app.command()

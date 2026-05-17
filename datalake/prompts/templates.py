@@ -110,7 +110,20 @@ class JudgeOutput(BaseModel):
     winner: Literal["A", "B", "tie"]
     a_scores: DimensionScore
     b_scores: DimensionScore
-    rationale: str = Field(max_length=1000)
+    # 2500 not 1000 — Qwen judges naturally produce per-dimension justifications
+    # that add up to ~1500–2000 chars. Tighter limits were dropping ~20% of pairs.
+    rationale: str = Field(max_length=2500)
+
+
+class BaselineRecord(BaseModel):
+    """Output of the single-pass GPT-4-equivalent baseline. Catalog + label + enriched
+    delivered in one mega-prompt — the *single pass* is the experimental variable.
+    See docs/07-evaluation.md §Pair construction."""
+
+    catalog: CatalogFields
+    label: LabelFields
+    enriched: EnrichedPayload
+    overall_confidence: float = Field(ge=0, le=1)
 
 
 # ---------------------------------------------------------------------------
@@ -285,6 +298,7 @@ TOKEN_BUDGETS = {
     "vote": {"input_cap": 3000, "output_cap": 300},
     "enrich": {"input_cap": 8000, "output_cap": 2500},
     "judge": {"input_cap": 6000, "output_cap": 700},
+    "baseline": {"input_cap": 8000, "output_cap": 3000},
 }
 
 # Temperature per pass — see docs/02-agent-loop.md §Determinism knobs.
@@ -295,4 +309,82 @@ PASS_TEMPERATURE = {
     "vote": 0.0,
     "enrich": 0.5,
     "judge": 0.0,
+    "baseline": 0.2,
 }
+
+
+def build_judge_user(
+    record_a: dict,
+    record_b: dict,
+    document_text: str,
+    rubric_yaml: str,
+) -> str:
+    """User message for the JUDGE pass. See docs/07-evaluation.md §Blinding.
+
+    The judge receives the two records as A and B with the blinding map
+    *not* disclosed. Rubric YAML is injected verbatim so dimension definitions
+    are visible to the model.
+    """
+    doc = _truncate(document_text, "judge")
+    n = TOKEN_BUDGETS["judge"]["input_cap"]
+    return f"""\
+You are evaluating two candidate label records (A and B) for the same source
+document. The ordering between A and B is randomized — DO NOT try to guess
+which side came from a multi-pass loop vs a single-pass call. Score on
+label quality only.
+
+Dimension rubrics (1–5 per dimension, per record):
+{rubric_yaml}
+
+Record A:
+{json.dumps(record_a, indent=2)}
+
+Record B:
+{json.dumps(record_b, indent=2)}
+
+Source document (truncated to {n} tokens):
+{doc}
+
+Task: produce a JudgeOutput. For each record, score every dimension on the
+1–5 rubric above. Then pick a winner ("A", "B", or "tie") and give a
+one-paragraph rationale grounded in specific differences between A and B.
+A win means clearly better label quality, not just a stylistic preference.
+
+Schema:
+{_schema_for(JudgeOutput)}"""
+
+
+def build_gpt4_baseline_user(
+    document_text: str,
+    references: list[dict],
+    content_type_guess: str,
+) -> str:
+    """User message for the GPT-4-equivalent single-pass baseline.
+
+    One mega-prompt: produce catalog + label + enriched payload in a single
+    call. This is what a naive single-pass labeler would do without the
+    propose → critique → refine → vote → enrich loop. See
+    docs/07-evaluation.md §Pair construction.
+    """
+    doc = _truncate(document_text, "baseline")
+    n = TOKEN_BUDGETS["baseline"]["input_cap"]
+    return f"""\
+Document type guess: {content_type_guess}
+Document text (truncated to {n} tokens):
+{doc}
+
+References extracted:
+{json.dumps(references, indent=2)}
+
+Task: in a SINGLE response, produce a BaselineRecord that combines:
+  - catalog: content_type, ownership, compliance_flags, commercial_score/action
+  - label: structured_abstract, methodology, novelty_claim, evidence,
+           claim_graph, citations, domain_tags
+  - enriched: expanded_abstract, novelty_rationale, citation_context,
+              claim_graph_v2, derived_keywords, suggested_buyer_segments
+
+You have one shot — no critique step. Be specific where the source supports
+it; mark fields unclear/low-confidence where it doesn't.
+
+Schema:
+{_schema_for(BaselineRecord)}"""

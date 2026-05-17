@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     wafer_loop_model: str = Field(default="qwen-3.5-397b", validation_alias="WAFER_MODEL_FAST")
     judge_model: str = Field(default="qwen-3.5-strong", validation_alias="WAFER_MODEL_BIG")
     openai_baseline_model: str = "gpt-4-turbo"
+    # Single-pass baseline runs on the same Wafer family — the experimental variable
+    # is "loop vs no-loop", not "Wafer vs GPT-4". Cost numbers for the GPT-4 column in
+    # the eval report come from estimate_gpt4_cost on the observed token counts.
+    baseline_model: str = Field(default="qwen-3.5-397b", validation_alias="WAFER_MODEL_FAST")
 
     # Concurrency
     wafer_concurrency: int = 64

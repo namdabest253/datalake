@@ -1,0 +1,10 @@
+[     186ms] [WARNING] Unrecognized feature: 'ambient-light-sensor'. @ http://localhost:8501/static/js/isLength.DwwZub7z.js:0
+[     186ms] [WARNING] Unrecognized feature: 'battery'. @ http://localhost:8501/static/js/isLength.DwwZub7z.js:0
+[     186ms] [WARNING] Unrecognized feature: 'document-domain'. @ http://localhost:8501/static/js/isLength.DwwZub7z.js:0
+[     186ms] [WARNING] Unrecognized feature: 'layout-animations'. @ http://localhost:8501/static/js/isLength.DwwZub7z.js:0
+[     186ms] [WARNING] Unrecognized feature: 'legacy-image-formats'. @ http://localhost:8501/static/js/isLength.DwwZub7z.js:0
+[     186ms] [WARNING] Unrecognized feature: 'oversized-images'. @ http://localhost:8501/static/js/isLength.DwwZub7z.js:0
+[     186ms] [WARNING] Unrecognized feature: 'vr'. @ http://localhost:8501/static/js/isLength.DwwZub7z.js:0
+[     186ms] [WARNING] Unrecognized feature: 'wake-lock'. @ http://localhost:8501/static/js/isLength.DwwZub7z.js:0
+[     291ms] [WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ http://localhost:8501/component/streamlit_autorefresh.st_autorefresh/index.html?streamlitUrl=http%3A%2F%2Flocalhost%3A8501%2F:0
+[     298ms] [WARNING] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing. @ http://localhost:8501/component/streamlit_autorefresh.st_autorefresh/index.html?streamlitUrl=http%3A%2F%2Flocalhost%3A8501%2F:0

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from datalake.dashboard._db import read, read_one
+from datalake.dashboard._db import read_one
 from datalake.dashboard.queries import LOW_CONF_FLAG_RATE, QUALITY_COUNTERS
 
 INTER_AGENT_AGREEMENT_SQL = """
