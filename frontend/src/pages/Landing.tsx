@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { Icon } from "@/components/Icon";
+import { ScrambleText } from "@/components/ScrambleText";
 
 export default function Landing() {
   return (
@@ -11,9 +12,14 @@ export default function Landing() {
             <Icon name="memory" className="text-[16px]" />
             <span>System Online // Inference Ready</span>
           </div>
-          <h1 className="text-[48px] leading-[56px] font-bold text-on-surface tracking-tighter">
-            Datalake: Make University Data Labelable.
-          </h1>
+          <ScrambleText
+            as="h1"
+            text="Datalake: Make University Data Labelable."
+            className="text-[48px] leading-[56px] font-bold text-on-surface tracking-tighter"
+            charDelayMs={18}
+            tickMs={18}
+            triggerOnView={false}
+          />
           <p className="text-body-lg text-on-surface-variant max-w-xl">
             The agentic prep system for institutional research. Catalog
             compliance and label training-grade metadata in a single high-speed
