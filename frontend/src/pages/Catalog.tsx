@@ -1,5 +1,7 @@
 import { Icon } from "@/components/Icon";
-import { CATALOG_ROWS, type ComplianceStatus } from "@/data/mock";
+import { type ComplianceStatus } from "@/data/mock";
+import { api } from "@/api/client";
+import { useApi } from "@/api/useApi";
 
 const COMPLIANCE_STYLES: Record<
   ComplianceStatus,
@@ -26,6 +28,16 @@ const COMPLIANCE_STYLES: Record<
 };
 
 export default function Catalog() {
+  const catalog = useApi(() => api.catalog(undefined, { limit: 500 }), []);
+  const rows = catalog.data ?? [];
+  const licenseReady = rows.filter(
+    (r) => r.score >= 70 && (r.compliance === "clean" || r.compliance === "unclear"),
+  ).length;
+  // Per-doc midpoint commercial value — same constants as the Streamlit panel.
+  const estMarketValue = rows
+    .filter((r) => r.compliance !== "restricted")
+    .reduce((acc, r) => acc + (r.score >= 70 ? 800 : 200), 0);
+
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-headline-lg text-on-surface">
@@ -60,7 +72,7 @@ export default function Catalog() {
             Sellable Subset
           </h3>
           <p className="text-headline-md text-on-surface flex items-center gap-2">
-            <span className="text-secondary font-mono">12,402</span>
+            <span className="text-secondary font-mono">{licenseReady.toLocaleString()}</span>
             Documents Licensed-Ready
           </p>
         </div>
@@ -68,7 +80,7 @@ export default function Catalog() {
           <p className="text-label-caps text-on-surface-variant mb-1">
             Est. Market Value
           </p>
-          <p className="text-headline-sm text-secondary font-mono">$1.2M</p>
+          <p className="text-headline-sm text-secondary font-mono">${estMarketValue.toLocaleString()}</p>
         </div>
       </div>
 
@@ -96,8 +108,29 @@ export default function Catalog() {
               </tr>
             </thead>
             <tbody className="text-body-md text-on-surface">
-              {CATALOG_ROWS.map((row) => {
-                const cs = COMPLIANCE_STYLES[row.compliance];
+              {catalog.loading && (
+                <tr>
+                  <td colSpan={5} className="p-6 text-on-surface-variant text-label-caps">
+                    Loading catalog…
+                  </td>
+                </tr>
+              )}
+              {catalog.error && (
+                <tr>
+                  <td colSpan={5} className="p-6 text-error text-label-caps">
+                    API error: {catalog.error}. Is `datalake api` running?
+                  </td>
+                </tr>
+              )}
+              {!catalog.loading && !catalog.error && rows.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="p-6 text-on-surface-variant text-label-caps">
+                    No catalog records yet. Run `datalake run` to populate.
+                  </td>
+                </tr>
+              )}
+              {rows.map((row) => {
+                const cs = COMPLIANCE_STYLES[row.compliance as ComplianceStatus];
                 return (
                   <tr
                     key={row.id}
@@ -149,7 +182,7 @@ export default function Catalog() {
         </div>
         <div className="bg-surface-container-lowest border-t border-outline-variant p-3 flex justify-between items-center">
           <span className="text-label-sm font-mono text-on-surface-variant">
-            Showing 1–{CATALOG_ROWS.length} of 12,402
+            Showing 1–{rows.length} of {rows.length}
           </span>
           <div className="flex items-center gap-2">
             <button

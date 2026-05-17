@@ -211,9 +211,24 @@ too vague, wrong, missing evidence, or contradicted by the source.
 For each critiqued field, suggest a specific revision. Then give
 an overall assessment.
 
-Pay particular attention to compliance flags — check the heuristics
-above against the document text. Missed compliance flags are the
-most expensive type of error.
+Compliance flags: check the heuristics above against the document
+text. Both directions are costly — a missed flag exposes the seller
+legally, but a spurious flag wrongly excludes a sellable document
+from the license-ready set.
+
+Default rule: a preprint (e.g. arxiv) with no restrictive license
+language, no human-subjects content, and no publisher copyright
+transfer statement is `['clean']`. That is the correct call — do
+NOT downgrade it to `['unclear']` just because the body text doesn't
+contain an explicit license statement. Most preprints don't.
+
+Use `['unclear']` ONLY when the document contains genuinely
+contradictory or ambiguous license signals (e.g. a CC-BY statement
+that conflicts with a publisher exclusivity clause). Add restrictive
+flags (`hipaa`, `ferpa`, `irb_restricted`, `publisher_exclusive`)
+ONLY with specific evidence matching the heuristic. Compliance flags
+are mutually-coherent: do not mix `clean` with restrictive flags in
+the same set.
 
 Schema:
 {_schema_for(Critique)}"""

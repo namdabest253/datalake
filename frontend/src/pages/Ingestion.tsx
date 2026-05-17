@@ -1,8 +1,16 @@
 import { Icon } from "@/components/Icon";
 import { GlassCard } from "@/components/GlassCard";
-import { RECENT_UPLOADS } from "@/data/mock";
+import { api } from "@/api/client";
+import { useApi } from "@/api/useApi";
+
+// Material-ish palette for bar chart; cycles if there are more formats than colours.
+const BAR_PALETTE = ["bg-secondary", "bg-primary", "bg-outline", "bg-error"];
 
 export default function Ingestion() {
+  const uploads = useApi(() => api.recentUploads(), []);
+  const formats = useApi(() => api.formatDistribution(), []);
+  const rows = uploads.data ?? [];
+  const formatBars = (formats.data ?? []).slice(0, 4);
   return (
     <div className="flex flex-col gap-6">
       <div className="flex justify-between items-end mb-4">
@@ -43,23 +51,32 @@ export default function Ingestion() {
             Initial Parsing Stats
           </span>
           <div className="flex-1 flex items-end gap-6 mt-4">
-            {[
-              { label: "85% PDF", pct: 85, color: "bg-secondary" },
-              { label: "10% JSON", pct: 10, color: "bg-primary" },
-              { label: "5% MD", pct: 5, color: "bg-outline" },
-            ].map((bar) => (
+            {formats.loading && (
+              <span className="text-on-surface-variant text-label-caps">Loading…</span>
+            )}
+            {formats.error && (
+              <span className="text-error text-label-caps">
+                API error: {formats.error}
+              </span>
+            )}
+            {!formats.loading && !formats.error && formatBars.length === 0 && (
+              <span className="text-on-surface-variant text-label-caps">
+                No documents ingested yet.
+              </span>
+            )}
+            {formatBars.map((bar, i) => (
               <div
                 key={bar.label}
                 className="flex flex-col items-center gap-2 flex-1"
               >
                 <div className="w-full h-24 bg-surface-container-highest rounded-t relative overflow-hidden flex items-end justify-center">
                   <div
-                    className={`w-full ${bar.color} absolute bottom-0 transition-all duration-500`}
+                    className={`w-full ${BAR_PALETTE[i % BAR_PALETTE.length]} absolute bottom-0 transition-all duration-500`}
                     style={{ height: `${bar.pct}%` }}
                   />
                 </div>
                 <span className="font-mono text-data-mono text-on-surface text-center">
-                  {bar.label}
+                  {bar.pct}% {bar.label}
                 </span>
               </div>
             ))}
@@ -83,7 +100,28 @@ export default function Ingestion() {
                 </tr>
               </thead>
               <tbody className="text-body-md text-on-surface">
-                {RECENT_UPLOADS.map((u) => (
+                {uploads.loading && (
+                  <tr>
+                    <td colSpan={4} className="py-4 px-4 text-on-surface-variant text-label-caps">
+                      Loading recent runs…
+                    </td>
+                  </tr>
+                )}
+                {uploads.error && (
+                  <tr>
+                    <td colSpan={4} className="py-4 px-4 text-error text-label-caps">
+                      API error: {uploads.error}. Is `datalake api` running?
+                    </td>
+                  </tr>
+                )}
+                {!uploads.loading && !uploads.error && rows.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="py-4 px-4 text-on-surface-variant text-label-caps">
+                      No ingestion runs yet.
+                    </td>
+                  </tr>
+                )}
+                {rows.map((u) => (
                   <tr
                     key={u.id}
                     className="border-b border-outline-variant/30 row-data"

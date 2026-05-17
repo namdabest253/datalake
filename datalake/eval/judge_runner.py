@@ -42,7 +42,11 @@ async def judge_pair(
     judge: JudgeClient,
     heuristics_yaml: str = "",
 ) -> JudgeOutput:
-    """Single judge call. Returns the validated JudgeOutput schema."""
+    """Single judge call with one validation-retry. Returns the validated JudgeOutput.
+
+    Some judge models (notably GLM-5.1) intermittently omit required score fields
+    on the first call. We retry once with a stricter reminder before raising.
+    """
     rubric = _load_rubric()
     system = build_system(role="evaluation judge", heuristics_yaml=heuristics_yaml)
     user = build_judge_user(
@@ -51,17 +55,31 @@ async def judge_pair(
         document_text=document_text,
         rubric_yaml=rubric,
     )
-    cr = await judge.call(
-        system=system,
-        user=user,
-        json_schema=JudgeOutput.model_json_schema(),
-        temperature=PASS_TEMPERATURE["judge"],
-        timeout=30.0,
-    )
-    try:
-        return JudgeOutput.model_validate_json(cr.response_text)
-    except ValidationError as e:
-        raise RuntimeError(f"Judge output failed schema validation: {e}") from e
+
+    for attempt in range(2):
+        suffix = (
+            ""
+            if attempt == 0
+            else (
+                "\n\nIMPORTANT: your previous response was missing required fields. "
+                "Both a_scores and b_scores MUST contain integer 1–5 values for ALL "
+                "six dimensions: methodology_specificity, novelty_claim_accuracy, "
+                "evidence_quality, citation_completeness, compliance_correctness, "
+                "ownership_defensibility."
+            )
+        )
+        cr = await judge.call(
+            system=system,
+            user=user + suffix,
+            json_schema=JudgeOutput.model_json_schema(),
+            temperature=PASS_TEMPERATURE["judge"],
+            timeout=30.0,
+        )
+        try:
+            return JudgeOutput.model_validate_json(cr.response_text)
+        except ValidationError as e:
+            if attempt == 1:
+                raise RuntimeError(f"Judge output failed schema validation: {e}") from e
 
 
 async def run_judge(

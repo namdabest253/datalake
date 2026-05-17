@@ -52,7 +52,7 @@ def _corpus_version(root: Path) -> str:
 def _config_snapshot(settings: Settings) -> str:
     """Resolved settings as JSON, secrets redacted."""
     data = settings.model_dump(mode="json")
-    for k in ("wafer_api_key", "openai_api_key", "judge_api_key"):
+    for k in ("wafer_api_key", "judge_api_key"):
         if data.get(k):
             data[k] = "REDACTED"
     return json.dumps(data, sort_keys=True)

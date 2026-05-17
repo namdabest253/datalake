@@ -7,6 +7,9 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
+# Claude
+.claude/
+
 # Virtual env
 .venv/
 venv/
@@ -34,3 +37,7 @@ demo_corpus/nsf/
 # IDE
 .vscode/
 .idea/
+
+# Playwright MCP
+.playwright-mcp/
+dashboard-*.png

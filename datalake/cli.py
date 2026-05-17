@@ -6,6 +6,7 @@ Subcommands:
     datalake eval --n 200      Side-by-side Datalake vs single-pass GPT-4.
     datalake export            Emit JSONL + CSV + dataset_card.
     datalake dashboard         Launch the Streamlit UI.
+    datalake api               Launch the JSON HTTP API for the React frontend.
 """
 
 from __future__ import annotations
@@ -349,6 +350,28 @@ def dashboard(
     ]
     logger.info("dashboard_launch run_id={} port={}", run_id or "<latest>", port)
     subprocess.run(cmd, env=env, check=False)
+
+
+@app.command()
+def api(
+    host: str = typer.Option("0.0.0.0", "--host"),
+    port: int = typer.Option(8000, "--port"),
+) -> None:
+    """Launch the JSON HTTP API that backs the React frontend at `frontend/`."""
+    from datalake.api.server import run as run_api
+
+    settings = load_settings()
+    db_path = settings.paths.sqlite_db
+    if not db_path.exists():
+        typer.echo(
+            f"WARN: no DB at {db_path} — API will still start but every endpoint returns []",
+            err=True,
+        )
+    logger.info("api_launch host={} port={} db={}", host, port, db_path)
+    typer.echo(
+        f"API on http://{host}:{port}  ·  try http://localhost:{port}/api/health"
+    )
+    run_api(host=host, port=port)
 
 
 if __name__ == "__main__":

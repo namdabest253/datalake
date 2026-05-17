@@ -1,7 +1,19 @@
 import { Icon } from "@/components/Icon";
-import { SAMPLE_EXPORT_RECORD } from "@/data/mock";
+import { api } from "@/api/client";
+import { useApi } from "@/api/useApi";
 
 export default function ExportPage() {
+  const sample = useApi(() => api.exportSample(), []);
+  const counters = useApi(() => api.counters(), []);
+  const text = sample.data?.sample ?? "";
+  const hint = sample.data && !sample.data.available
+    ? (sample.data as { hint?: string }).hint ?? "Run `datalake export` to generate the JSONL."
+    : null;
+  const docsTotal =
+    (counters.data?.docs_done ?? 0) +
+    (counters.data?.docs_partial ?? 0) +
+    (counters.data?.docs_failed ?? 0);
+  const confPct = Math.round((counters.data?.avg_overall_confidence ?? 0) * 100);
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -42,16 +54,21 @@ export default function ExportPage() {
                 </span>
               </div>
               <button
-                onClick={() =>
-                  navigator.clipboard.writeText(SAMPLE_EXPORT_RECORD)
-                }
+                onClick={() => navigator.clipboard.writeText(text)}
                 className="text-on-surface-variant hover:text-on-surface"
+                disabled={!text}
               >
                 <Icon name="content_copy" className="text-[18px]" />
               </button>
             </div>
-            <pre className="p-6 bg-inverse-surface text-inverse-on-surface overflow-x-auto font-mono text-data-mono leading-relaxed">
-              <code>{SAMPLE_EXPORT_RECORD}</code>
+            <pre className="p-6 bg-inverse-surface text-inverse-on-surface overflow-x-auto font-mono text-data-mono leading-relaxed max-h-[480px]">
+              <code>
+                {sample.loading
+                  ? "Loading sample…"
+                  : sample.error
+                    ? `API error: ${sample.error}. Is \`datalake api\` running?`
+                    : text || hint || ""}
+              </code>
             </pre>
           </div>
         </div>
@@ -77,15 +94,25 @@ export default function ExportPage() {
               <StatCard
                 icon="inventory_2"
                 label="CORPUS VOLUME"
-                value="20,450"
-                sub="Cleaned Documents"
+                value={docsTotal.toLocaleString()}
+                sub={
+                  counters.data
+                    ? `${counters.data.docs_done} done · ${counters.data.docs_partial} partial · ${counters.data.docs_failed} failed`
+                    : "Loading…"
+                }
               />
               <StatCard
-                icon="category"
-                label="TOP DOMAINS"
+                icon="payments"
+                label="WAFER SPEND"
                 valueClassName="text-body-lg font-semibold leading-tight"
-                value="AI, Physics, CompSci"
-                sub="85% of total payload"
+                value={
+                  counters.data ? `$${counters.data.wafer_usd.toFixed(4)}` : "—"
+                }
+                sub={
+                  counters.data?.cost_ratio_vs_gpt4
+                    ? `${Math.round(counters.data.cost_ratio_vs_gpt4)}× cheaper than GPT-4`
+                    : "—"
+                }
               />
               <div className="col-span-2 bg-surface-container px-4 py-4 rounded-lg border border-outline-variant/50 flex items-center justify-between">
                 <div>
@@ -94,11 +121,11 @@ export default function ExportPage() {
                     QUALITY ASSURANCE
                   </span>
                   <div className="text-body-md text-on-surface">
-                    Judge Model Approval Rate
+                    Avg Overall Confidence
                   </div>
                 </div>
                 <div className="text-headline-lg text-secondary flex items-center gap-2">
-                  92.4%
+                  {confPct}%
                   <Icon name="check_circle" filled className="text-secondary" />
                 </div>
               </div>
