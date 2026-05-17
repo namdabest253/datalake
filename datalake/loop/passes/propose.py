@@ -13,6 +13,7 @@ from datalake.inference.base import CallResult, InferenceClient
 from datalake.inference.retry import call_pass
 from datalake.prompts.templates import (
     PASS_TEMPERATURE,
+    TOKEN_BUDGETS,
     ProposalRecord,
     build_propose_user,
     build_system,
@@ -49,6 +50,7 @@ async def propose(
         schema_model=ProposalRecord,
         temperature=PASS_TEMPERATURE["propose"],
         timeout=20.0,
+        max_tokens=TOKEN_BUDGETS["propose"]["output_cap"],
         conn=conn,
         run_id=run_id,
         doc_id=doc.id,

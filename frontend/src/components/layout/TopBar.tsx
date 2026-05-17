@@ -57,15 +57,20 @@ export function TopBar() {
           </div>
         </div>
         <div className="flex items-center gap-2 text-on-surface-variant">
-          <button className="p-2 rounded hover:bg-surface-container-high transition-colors active:opacity-80">
-            <Icon name="sensors" />
-          </button>
-          <button className="p-2 rounded hover:bg-surface-container-high transition-colors active:opacity-80">
-            <Icon name="memory" />
-          </button>
-          <button className="p-2 rounded hover:bg-surface-container-high transition-colors active:opacity-80">
-            <Icon name="account_circle" />
-          </button>
+          <span
+            className={`p-2 rounded flex items-center ${
+              counters.error ? "text-error" : "text-secondary animate-flash"
+            }`}
+            title={
+              counters.loading
+                ? "API connection: loading…"
+                : counters.error
+                  ? `API connection: ${counters.error}`
+                  : "API connection: live"
+            }
+          >
+            <Icon name="sensors" filled={!counters.error} />
+          </span>
         </div>
       </div>
     </header>

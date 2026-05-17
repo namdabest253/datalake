@@ -94,6 +94,41 @@ export type EvalPair =
 
 export type FormatBar = { label: string; count: number; pct: number };
 
+export type DocumentDetail = {
+  document: {
+    id: string;
+    source_path: string;
+    source_hash: string;
+    run_id: string;
+    status: string;
+    content_type_guess: string | null;
+    ingested_at: number;
+    partial: boolean;
+    timeout: boolean;
+  };
+  catalog: {
+    content_type: string;
+    content_type_confidence: number;
+    ownership: string;
+    ownership_confidence: number;
+    ownership_rationale: string;
+    compliance_flags: string[];
+    commercial_score: number;
+    commercial_action: string;
+  } | null;
+  label: {
+    structured_abstract: Record<string, string>;
+    methodology: { named?: string[]; other_freetext?: string | null };
+    novelty_claim: string;
+    evidence_quality: Record<string, unknown>;
+    claim_graph: Array<Record<string, unknown>>;
+    citations: Array<Record<string, unknown>>;
+    domain_tags: string[];
+    enriched_payload: Record<string, unknown> | null;
+    partial: boolean;
+  } | null;
+};
+
 async function getJSON<T>(path: string, params?: Record<string, string | number>): Promise<T> {
   const url = new URL(path, BASE);
   if (params) {
@@ -133,4 +168,11 @@ export const api = {
       "/api/ingestion/format-distribution",
       runId ? { run_id: runId } : undefined,
     ),
+  document: (docId: string) => getJSON<DocumentDetail>(`/api/document/${docId}`),
+  /** Returns the direct download URL for the given export format. */
+  exportDownloadUrl: (format: "jsonl" | "csv" | "card", runId?: string): string => {
+    const params = new URLSearchParams({ format });
+    if (runId) params.set("run_id", runId);
+    return `${BASE}/api/export/download?${params.toString()}`;
+  },
 };

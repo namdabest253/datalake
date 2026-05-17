@@ -11,6 +11,7 @@ from datalake.inference.base import CallResult, InferenceClient
 from datalake.inference.retry import call_pass
 from datalake.prompts.templates import (
     PASS_TEMPERATURE,
+    TOKEN_BUDGETS,
     Critique,
     ProposalRecord,
     RefinedRecord,
@@ -41,6 +42,7 @@ async def refine(
         schema_model=RefinedRecord,
         temperature=PASS_TEMPERATURE["refine"],
         timeout=20.0,
+        max_tokens=TOKEN_BUDGETS["refine"]["output_cap"],
         conn=conn,
         run_id=run_id,
         doc_id=doc.id,

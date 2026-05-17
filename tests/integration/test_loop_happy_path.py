@@ -86,6 +86,7 @@ class _SmartMockClient:
         json_schema: dict | None = None,
         temperature: float = 0.5,
         timeout: float = 20.0,
+        **_kwargs,
     ) -> CallResult:
         props = json_schema.get("properties", {}) if json_schema else {}
         self.calls.append(set(props.keys()))

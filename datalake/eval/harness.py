@@ -11,6 +11,7 @@ counts × published GPT-4 rates and persisted to `inference_calls` with
 
 from __future__ import annotations
 
+import asyncio
 import json
 import random
 import time
@@ -31,6 +32,7 @@ from datalake.inference.judge import JudgeClient
 from datalake.inference.wafer import WaferClient
 from datalake.prompts.templates import (
     PASS_TEMPERATURE,
+    TOKEN_BUDGETS,
     BaselineRecord,
     build_gpt4_baseline_user,
     build_system,
@@ -72,6 +74,7 @@ async def gpt4_single_pass(
         json_schema=BaselineRecord.model_json_schema(),
         temperature=PASS_TEMPERATURE["baseline"],
         timeout=60.0,
+        max_tokens=TOKEN_BUDGETS["baseline"]["output_cap"],
     )
 
     # Persist actual Wafer cost row.
@@ -295,53 +298,64 @@ async def run_eval(
 
         logger.info("eval_sampled n_target={} n_picked={}", n, len(doc_ids))
 
-        # Build pairs sequentially — one SQLite connection, baseline calls
-        # serialise on the global Wafer semaphore.
-        for doc_id in doc_ids:
-            doc_row = await _doc_metadata(conn, doc_id)
-            if doc_row is None:
-                continue
-            datalake_record = await _materialize_datalake_record(conn, doc_id)
-            if datalake_record is None:
-                logger.warning("skip doc_id={}: no stored loop record", doc_id)
-                continue
+        # Build pairs in parallel — baseline calls are the dominant cost, and
+        # they all queue behind the global Wafer semaphore anyway. Bound docs
+        # in flight so we don't burst past Wafer's rate limit.
+        # Pre-generate randomness deterministically per doc so seeding works
+        # under concurrent execution.
+        a_flags = [random.random() < 0.5 for _ in doc_ids]
+        eval_sem = asyncio.Semaphore(4)
 
-            try:
-                text, refs = _parse_one(Path(doc_row["source_path"]))
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("skip doc_id={}: parse failed: {}", doc_id, exc)
-                continue
+        async def _build_pair(doc_id: str, a_is_datalake: bool) -> None:
+            async with eval_sem:
+                doc_row = await _doc_metadata(conn, doc_id)
+                if doc_row is None:
+                    return
+                datalake_record = await _materialize_datalake_record(conn, doc_id)
+                if datalake_record is None:
+                    logger.warning("skip doc_id={}: no stored loop record", doc_id)
+                    return
 
-            try:
-                baseline_record = await gpt4_single_pass(
-                    doc_row=doc_row,
-                    document_text=text,
-                    references=refs,
-                    settings=settings,
-                    baseline_client=baseline_client,
-                    heuristics_yaml=heuristics_yaml,
-                    conn=conn,
-                    run_id=run_id,
+                try:
+                    text, refs = _parse_one(Path(doc_row["source_path"]))
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("skip doc_id={}: parse failed: {}", doc_id, exc)
+                    return
+
+                try:
+                    baseline_record = await gpt4_single_pass(
+                        doc_row=doc_row,
+                        document_text=text,
+                        references=refs,
+                        settings=settings,
+                        baseline_client=baseline_client,
+                        heuristics_yaml=heuristics_yaml,
+                        conn=conn,
+                        run_id=run_id,
+                    )
+                except Exception as exc:  # noqa: BLE001 — drop this doc, keep going
+                    logger.warning("baseline failed for doc_id={}: {}", doc_id, exc)
+                    return
+
+                pair_id = str(uuid.uuid4())
+                await conn.execute(
+                    "INSERT INTO eval_pairs (id, run_id, doc_id, datalake_record, "
+                    "gpt4_record, a_is_datalake) VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        pair_id,
+                        run_id,
+                        doc_id,
+                        json.dumps(datalake_record),
+                        json.dumps(baseline_record),
+                        1 if a_is_datalake else 0,
+                    ),
                 )
-            except Exception as exc:  # noqa: BLE001 — drop the doc, keep going
-                logger.warning("baseline failed for doc_id={}: {}", doc_id, exc)
-                continue
+                await conn.commit()
 
-            a_is_datalake = random.random() < 0.5
-            pair_id = str(uuid.uuid4())
-            await conn.execute(
-                "INSERT INTO eval_pairs (id, run_id, doc_id, datalake_record, "
-                "gpt4_record, a_is_datalake) VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    pair_id,
-                    run_id,
-                    doc_id,
-                    json.dumps(datalake_record),
-                    json.dumps(baseline_record),
-                    1 if a_is_datalake else 0,
-                ),
-            )
-            await conn.commit()
+        await asyncio.gather(
+            *(_build_pair(d, a) for d, a in zip(doc_ids, a_flags, strict=True)),
+            return_exceptions=False,
+        )
 
         # Run the judge self-test BEFORE the main judge loop. Abort on failure.
         await self_test(judge, heuristics_yaml=heuristics_yaml)

@@ -39,6 +39,7 @@ class InferenceClient(Protocol):
         json_schema: dict | None = None,
         temperature: float = 0.5,
         timeout: float = 20.0,
+        max_tokens: int = 1500,
     ) -> CallResult:
         ...
 

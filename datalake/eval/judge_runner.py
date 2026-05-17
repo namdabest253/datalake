@@ -7,6 +7,7 @@ methodology delta ≥ +2". See docs/07-evaluation.md §Self-test.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from pathlib import Path
@@ -18,6 +19,7 @@ from pydantic import ValidationError
 from datalake.inference.judge import JudgeClient
 from datalake.prompts.templates import (
     PASS_TEMPERATURE,
+    TOKEN_BUDGETS,
     DimensionScore,
     JudgeOutput,
     build_judge_user,
@@ -74,6 +76,7 @@ async def judge_pair(
             json_schema=JudgeOutput.model_json_schema(),
             temperature=PASS_TEMPERATURE["judge"],
             timeout=30.0,
+            max_tokens=TOKEN_BUDGETS["judge"]["output_cap"],
         )
         try:
             return JudgeOutput.model_validate_json(cr.response_text)
@@ -110,44 +113,50 @@ async def run_judge(
     # Re-parse the source doc for each pair (text isn't persisted, only path).
     from datalake.ingest.parser import _parse_one
 
-    for row in rows:
-        try:
-            text, _refs = _parse_one(Path(row["source_path"]))
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("judge skip pair_id={}: parse failed: {}", row["id"], exc)
-            continue
+    # 4 judge calls in flight — fits comfortably within judge_concurrency=4
+    # and leaves the global Wafer cap room for other traffic.
+    judge_sem = asyncio.Semaphore(4)
 
-        datalake_record = json.loads(row["datalake_record"])
-        gpt4_record = json.loads(row["gpt4_record"])
-        a_is_datalake = bool(row["a_is_datalake"])
-        # The blinding decision: if a_is_datalake, put datalake into the A slot.
-        record_a = datalake_record if a_is_datalake else gpt4_record
-        record_b = gpt4_record if a_is_datalake else datalake_record
+    async def _judge_one(row: object) -> None:
+        async with judge_sem:
+            try:
+                text, _refs = _parse_one(Path(row["source_path"]))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("judge skip pair_id={}: parse failed: {}", row["id"], exc)
+                return
 
-        try:
-            out = await judge_pair(record_a, record_b, text, judge, heuristics_yaml)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("judge call failed pair_id={}: {}", row["id"], exc)
-            continue
+            datalake_record = json.loads(row["datalake_record"])
+            gpt4_record = json.loads(row["gpt4_record"])
+            a_is_datalake = bool(row["a_is_datalake"])
+            record_a = datalake_record if a_is_datalake else gpt4_record
+            record_b = gpt4_record if a_is_datalake else datalake_record
 
-        dimension_scores = {
-            dim: {"A": getattr(out.a_scores, dim), "B": getattr(out.b_scores, dim)}
-            for dim in DimensionScore.model_fields
-        }
-        await conn.execute(
-            "INSERT OR REPLACE INTO eval_results "
-            "(pair_id, winner, dimension_scores, rationale, judge_model, completed_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                row["id"],
-                out.winner,
-                json.dumps(dimension_scores),
-                out.rationale,
-                judge.model,
-                time.time(),
-            ),
-        )
-        await conn.commit()
+            try:
+                out = await judge_pair(record_a, record_b, text, judge, heuristics_yaml)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("judge call failed pair_id={}: {}", row["id"], exc)
+                return
+
+            dimension_scores = {
+                dim: {"A": getattr(out.a_scores, dim), "B": getattr(out.b_scores, dim)}
+                for dim in DimensionScore.model_fields
+            }
+            await conn.execute(
+                "INSERT OR REPLACE INTO eval_results "
+                "(pair_id, winner, dimension_scores, rationale, judge_model, completed_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    row["id"],
+                    out.winner,
+                    json.dumps(dimension_scores),
+                    out.rationale,
+                    judge.model,
+                    time.time(),
+                ),
+            )
+            await conn.commit()
+
+    await asyncio.gather(*(_judge_one(row) for row in rows), return_exceptions=False)
 
 
 async def self_test(judge: JudgeClient, heuristics_yaml: str = "") -> None:

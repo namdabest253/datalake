@@ -30,6 +30,7 @@ class MockInferenceClient:
         json_schema: dict | None = None,
         temperature: float = 0.5,
         timeout: float = 20.0,
+        **_kwargs,
     ) -> CallResult:
         self.calls.append({"system": system, "user": user, "temperature": temperature})
         # Look up canned response by a key the test provides via system message tag.

@@ -190,6 +190,7 @@ class _StubJudgeClient:
         json_schema: dict | None = None,
         temperature: float = 0.0,
         timeout: float = 20.0,
+        **_kwargs,
     ) -> CallResult:
         return CallResult(
             response_text=json.dumps(self.payload),

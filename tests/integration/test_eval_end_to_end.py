@@ -90,6 +90,7 @@ class _StubBaselineClient:
         json_schema: dict | None = None,
         temperature: float = 0.5,
         timeout: float = 20.0,
+        **_kwargs,
     ) -> CallResult:
         self.calls += 1
         return CallResult(
@@ -119,6 +120,7 @@ class _StubJudgeClient:
         json_schema: dict | None = None,
         temperature: float = 0.0,
         timeout: float = 20.0,
+        **_kwargs,
     ) -> CallResult:
         self.calls += 1
         payload = {
@@ -328,7 +330,7 @@ async def test_eval_aborts_if_judge_self_test_fails(tmp_path: Path, monkeypatch)
         """Always picks B — fails the self-test."""
         model = "broken"
 
-        async def call(self, system, user, *, json_schema=None, temperature=0.0, timeout=20.0):
+        async def call(self, system, user, *, json_schema=None, temperature=0.0, timeout=20.0, **_kwargs):
             payload = {
                 "winner": "B",
                 "a_scores": {d: 2 for d in [

@@ -56,6 +56,7 @@ async def call_pass(
     schema_model: type[BaseModel] | None = None,
     temperature: float = 0.5,
     timeout: float = 20.0,
+    max_tokens: int = 1500,
     conn: aiosqlite.Connection,
     run_id: str,
     doc_id: str | None,
@@ -86,6 +87,7 @@ async def call_pass(
                 json_schema=json_schema,
                 temperature=temperature,
                 timeout=timeout,
+                max_tokens=max_tokens,
             )
             break
         except TimeoutError:
@@ -122,6 +124,7 @@ async def call_pass(
                 json_schema=json_schema,
                 temperature=0.0,
                 timeout=timeout,
+                max_tokens=max_tokens,
             )
             # If this raises, propagate — caller treats as pass failure.
             parsed = schema_model.model_validate_json(_strip_code_fence(repair_result.response_text))

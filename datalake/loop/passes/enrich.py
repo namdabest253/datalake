@@ -13,6 +13,7 @@ from datalake.inference.base import CallResult, InferenceClient
 from datalake.inference.retry import call_pass
 from datalake.prompts.templates import (
     PASS_TEMPERATURE,
+    TOKEN_BUDGETS,
     EnrichedPayload,
     RefinedRecord,
     build_enrich_user,
@@ -41,6 +42,7 @@ async def enrich(
         schema_model=EnrichedPayload,
         temperature=PASS_TEMPERATURE["enrich"],
         timeout=25.0,  # ENRICH has the largest output budget
+        max_tokens=TOKEN_BUDGETS["enrich"]["output_cap"],
         conn=conn,
         run_id=run_id,
         doc_id=doc.id,

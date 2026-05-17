@@ -6,12 +6,12 @@
 # openai_baseline_model) live in .env and are loaded via pydantic-settings.
 # Keep this file for tuning knobs only.
 
-wafer_concurrency: 1    # Wafer tier allows only 1 in-flight call — serializes all loop calls
+wafer_concurrency: 8    # Tuned empirically: 16 hit Wafer 429s, 8 fits the rate-limit envelope.
 openai_concurrency: 8
-judge_concurrency: 1    # Same constraint — judge is also a Wafer model
-per_doc_concurrency: 8  # In-doc still bounded; serialization comes from the wafer gate above
+judge_concurrency: 4    # Judge bursts during eval; keep below Wafer global cap.
+per_doc_concurrency: 4  # In-doc fan-out (propose × N etc.) — bounded so 1 doc doesn't starve global cap.
 
-n_proposers: 1   # bumped to 3 once Wafer concurrency tuning is confirmed; temporarily serial for testing
+n_proposers: 3   # full ensemble — propose × 3 → critique × 3 → refine × 3 → vote → enrich
 per_doc_budget_seconds: 180   # Wafer is slower than the design assumed — was 30s
 trace_sample_k: 10
 

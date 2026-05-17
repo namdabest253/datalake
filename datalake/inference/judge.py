@@ -45,6 +45,7 @@ class JudgeClient:
         json_schema: dict | None = None,
         temperature: float = 0.0,
         timeout: float = 20.0,
+        max_tokens: int = 1500,
     ) -> CallResult:
         body: dict = {
             "model": self.model,
@@ -53,7 +54,7 @@ class JudgeClient:
                 {"role": "user", "content": user},
             ],
             "temperature": temperature,
-            "max_tokens": 1500,
+            "max_tokens": max_tokens,
             # Qwen defaults to thinking mode (CoT in `reasoning_content`); that eats
             # the entire token budget before any JSON comes out. Same fix as
             # WaferClient — see discovery note in datalake/inference/wafer.py.

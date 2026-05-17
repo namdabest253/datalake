@@ -34,7 +34,9 @@ export default function Landing() {
               <Icon name="play_arrow" className="text-[18px]" />
             </Link>
             <a
-              href="https://github.com/"
+              href="/PRD.md"
+              target="_blank"
+              rel="noreferrer"
               className="border border-outline text-on-surface text-label-caps px-6 py-3 rounded flex items-center gap-2 hover:bg-surface-container transition-colors"
             >
               Read PRD
@@ -182,22 +184,28 @@ export default function Landing() {
         <div className="text-label-caps font-bold">DATALAKE</div>
         <div className="flex gap-6">
           <a
-            href="#"
+            href="/PRD.md"
+            target="_blank"
+            rel="noreferrer"
             className="text-on-surface-variant hover:text-primary text-label-sm font-mono"
           >
-            Ethics Policy
+            PRD
           </a>
           <a
-            href="#"
+            href="/docs/00-overview.md"
+            target="_blank"
+            rel="noreferrer"
             className="text-on-surface-variant hover:text-primary text-label-sm font-mono"
           >
-            University Partners
+            Design Docs
           </a>
           <a
-            href="#"
+            href="http://localhost:8000/api/health"
+            target="_blank"
+            rel="noreferrer"
             className="text-on-surface-variant hover:text-primary text-label-sm font-mono"
           >
-            API Docs
+            API Health
           </a>
         </div>
         <div className="text-body-md text-on-surface-variant">

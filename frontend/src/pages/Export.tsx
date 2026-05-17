@@ -24,18 +24,30 @@ export default function ExportPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <button className="px-6 py-2 border border-outline bg-transparent text-on-surface hover:bg-surface-container-high transition-colors rounded flex items-center gap-2">
+          <a
+            href={api.exportDownloadUrl("csv")}
+            download
+            className="px-6 py-2 border border-outline bg-transparent text-on-surface hover:bg-surface-container-high transition-colors rounded flex items-center gap-2"
+          >
             <Icon name="download" className="text-[18px]" />
             <span className="text-label-caps">Download Compliance CSV</span>
-          </button>
-          <button className="px-6 py-2 border border-outline bg-transparent text-on-surface hover:bg-surface-container-high transition-colors rounded flex items-center gap-2">
+          </a>
+          <button
+            disabled
+            title="Not yet wired — needs HF auth + datasets SDK integration."
+            className="px-6 py-2 border border-outline bg-transparent text-on-surface-variant rounded flex items-center gap-2 opacity-50 cursor-not-allowed"
+          >
             <Icon name="cloud_upload" className="text-[18px]" />
             <span className="text-label-caps">Push to Hugging Face Hub</span>
           </button>
-          <button className="px-8 py-2 bg-primary text-on-primary rounded hover:bg-primary/90 transition-colors flex items-center gap-2 shadow-sm">
+          <a
+            href={api.exportDownloadUrl("jsonl")}
+            download
+            className="px-8 py-2 bg-primary text-on-primary rounded hover:bg-primary/90 transition-colors flex items-center gap-2 shadow-sm"
+          >
             <Icon name="terminal" className="text-[18px]" />
             <span className="text-label-caps">Export JSONL</span>
-          </button>
+          </a>
         </div>
       </div>
 
@@ -132,9 +144,14 @@ export default function ExportPage() {
             </div>
 
             <p className="text-body-md text-on-surface-variant leading-relaxed">
-              This dataset complies with the institutional Ethics Policy v2.1.
-              All PII has been scrubbed using the standard NLP pipeline. Ready
-              for export to final training environments.
+              <a
+                href={api.exportDownloadUrl("card")}
+                download
+                className="text-primary hover:text-secondary underline"
+              >
+                Download the auto-generated dataset_card.md
+              </a>{" "}
+              for full provenance, methodology, and the GPT-4 cost comparison.
             </p>
           </div>
         </div>

@@ -171,11 +171,25 @@ def run(
                     stats["done"] += 1
                 stats["wafer_micro_usd"] += result.wafer_micro_usd
 
-            try:
-                # Single connection → process sequentially to avoid SQLite write contention.
-                # For real fan-out across docs, use multiple connections; out of scope here.
-                for row in rows:
+            # Fan out across docs. Per-doc inference is the dominant cost, so
+            # parallel docs amplify the Wafer fan-out instead of stacking serially.
+            # SQLite writes serialize inside aiosqlite — fine at this scale.
+            # 4 docs × per_doc=4 = up to 16 in flight, comfortably above the
+            # 8-call Wafer global cap so the global semaphore actually gates.
+            doc_sem = asyncio.Semaphore(min(4, len(rows)))
+
+            async def _guarded(row: object) -> None:
+                async with doc_sem:
                     await _process(row)
+
+            try:
+                results = await asyncio.gather(
+                    *(_guarded(row) for row in rows), return_exceptions=True
+                )
+                for r in results:
+                    if isinstance(r, BudgetExceededError):
+                        typer.echo(f"PAUSED: {r}", err=True)
+                        break
             except BudgetExceededError as e:
                 typer.echo(f"PAUSED: {e}", err=True)
 

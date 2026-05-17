@@ -14,22 +14,28 @@ export function Footer({ offsetSidebar = false }: { offsetSidebar?: boolean }) {
       </div>
       <div className="flex items-center gap-6">
         <a
-          href="#"
+          href="/PRD.md"
+          target="_blank"
+          rel="noreferrer"
           className="text-label-sm font-mono text-on-surface-variant hover:text-primary transition-colors"
         >
-          Ethics Policy
+          PRD
         </a>
         <a
-          href="#"
+          href="/docs/00-overview.md"
+          target="_blank"
+          rel="noreferrer"
           className="text-label-sm font-mono text-on-surface-variant hover:text-primary transition-colors"
         >
-          University Partners
+          Design Docs
         </a>
         <a
-          href="#"
+          href="http://localhost:8000/api/health"
+          target="_blank"
+          rel="noreferrer"
           className="text-label-sm font-mono text-on-surface-variant hover:text-primary transition-colors"
         >
-          API Docs
+          API Health
         </a>
       </div>
     </footer>

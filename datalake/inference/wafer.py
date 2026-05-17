@@ -44,6 +44,7 @@ class WaferClient:
         json_schema: dict | None = None,
         temperature: float = 0.5,
         timeout: float = 20.0,
+        max_tokens: int = 1500,
     ) -> CallResult:
         """Single Wafer call. Retry/JSON-repair/accounting handled by the wrapper in retry.py."""
         body: dict = {
@@ -53,7 +54,7 @@ class WaferClient:
                 {"role": "user", "content": user},
             ],
             "temperature": temperature,
-            "max_tokens": 2500,
+            "max_tokens": max_tokens,
             # Qwen 3.5 defaults to thinking mode (chain-of-thought in `reasoning_content`).
             # That eats the token budget before any answer comes out. Disable it for our
             # structured-JSON workload. See discovery log: only `chat_template_kwargs:

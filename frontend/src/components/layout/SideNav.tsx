@@ -1,4 +1,4 @@
-import { NavLink } from "react-router-dom";
+import { Link, NavLink } from "react-router-dom";
 import { Icon } from "@/components/Icon";
 
 type NavItem = { to: string; label: string; icon: string };
@@ -9,11 +9,6 @@ const PRIMARY: NavItem[] = [
   { to: "/app/catalog", label: "Catalog & Compliance", icon: "fact_check" },
   { to: "/app/eval", label: "Quality Evaluation", icon: "analytics" },
   { to: "/app/export", label: "Export", icon: "ios_share" },
-];
-
-const SECONDARY: NavItem[] = [
-  { to: "#docs", label: "Documentation", icon: "menu_book" },
-  { to: "#settings", label: "System Settings", icon: "settings" },
 ];
 
 const linkBase =
@@ -58,23 +53,13 @@ export function SideNav() {
       </div>
 
       <div className="px-6 mb-6">
-        <button className="w-full bg-secondary text-on-secondary py-3 rounded text-label-caps flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
+        <Link
+          to="/app/ingestion"
+          className="w-full bg-secondary text-on-secondary py-3 rounded text-label-caps flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
+        >
           <Icon name="play_arrow" filled />
           Run New Agent
-        </button>
-      </div>
-
-      <div className="px-4 space-y-1 pb-2 border-t border-on-primary-container/10 pt-3">
-        {SECONDARY.map((item) => (
-          <a
-            key={item.to}
-            href={item.to}
-            className={`${linkBase} ${linkInactive} py-2`}
-          >
-            <Icon name={item.icon} className="text-[18px]" />
-            <span>{item.label}</span>
-          </a>
-        ))}
+        </Link>
       </div>
     </nav>
   );
