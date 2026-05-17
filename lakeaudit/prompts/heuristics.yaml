@@ -1,0 +1,30 @@
+# Compliance heuristics injected into the CRITIQUE pass's system prompt.
+# Demoable on stage between runs (PRD §11, docs/03 §Compliance heuristics).
+# Hot-reload BETWEEN runs only, never mid-run — within-run inconsistency
+# would corrupt the corpus.
+
+ferpa:
+  - "explicit student names + grades or transcripts"
+  - "mention of FERPA / education records / Family Educational Rights"
+
+hipaa:
+  - "patient identifiers + clinical observations"
+  - "mention of HIPAA / protected health information / PHI"
+
+irb_restricted:
+  - "human subjects research described"
+  - "informed consent language"
+  - "IRB approval number cited"
+
+publisher_exclusive:
+  - "publisher copyright notice with exclusive license language"
+  - "journal-of-record metadata that implies transferred rights"
+  - "ACM / IEEE / Elsevier copyright transfer mention"
+
+public_domain:
+  - "government work / federal employee authorship"
+  - "explicit CC-BY-0 or PD dedication"
+
+clean:
+  - "preprint with CC-BY"
+  - "university-press-released dataset with explicit license to redistribute"

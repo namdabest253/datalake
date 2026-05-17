@@ -1,0 +1,72 @@
+{
+  "_comment": "Eval self-test fixture. See docs/07-evaluation.md §Self-test. The judge MUST pick LakeAudit with methodology delta >= +2; otherwise we abort the eval run.",
+  "document_text": "We present a novel application of contrastive learning to scientific paper retrieval. Our method, ScholarCLIP, fine-tunes a SciBERT encoder using triplet loss on a curated dataset of 12,000 paired papers. Compared to a TF-IDF baseline and a vanilla SciBERT zero-shot embedding, ScholarCLIP achieves mean reciprocal rank of 0.74 (vs 0.41 baseline, 0.58 zero-shot). Ablations show contrastive triplet sampling contributes 0.12 MRR; domain-specific pretraining contributes 0.04. Authors are affiliated with University of Chicago. Funded by NSF grant CCF-2401234. The paper is released under CC-BY 4.0.",
+  "lakeaudit_record": {
+    "catalog": {
+      "content_type": "research_paper",
+      "content_type_confidence": 0.96,
+      "ownership": "joint",
+      "ownership_confidence": 0.82,
+      "ownership_rationale": "University of Chicago authors + NSF grant CCF-2401234 — joint institution/funder ownership; CC-BY license clarifies redistribution rights.",
+      "compliance_flags": ["clean", "public_domain"],
+      "commercial_score": 88,
+      "commercial_action": "license_ready"
+    },
+    "label": {
+      "structured_abstract": {
+        "problem": "Scientific paper retrieval is weakly served by general-purpose embeddings and lexical baselines.",
+        "approach": "Fine-tune SciBERT with triplet contrastive loss on 12k paired papers.",
+        "findings": "MRR 0.74 vs 0.41 TF-IDF baseline and 0.58 zero-shot SciBERT.",
+        "limitations": "Single domain (CS); requires curated triplet pairs."
+      },
+      "methodology_named": ["contrastive_learning", "fine_tuned_bert"],
+      "methodology_other_freetext": "triplet loss with hard negative mining",
+      "novelty_claim": "First application of contrastive triplet learning fine-tuned on a curated paired-papers dataset for scientific paper retrieval (ScholarCLIP), with ablation isolating contrastive sampling as the dominant contributor (+0.12 MRR).",
+      "evidence_type": "empirical",
+      "evidence_strength": "strong",
+      "sample_size": 12000,
+      "claim_graph": [
+        {"claim": "ScholarCLIP beats TF-IDF by +0.33 MRR", "evidence_pointer": "Table 2, retrieval benchmark"},
+        {"claim": "Contrastive sampling drives the gain", "evidence_pointer": "Ablation Table 3"}
+      ],
+      "citations": [],
+      "domain_tags": ["ml", "nlp", "information_retrieval", "scientific_search"]
+    },
+    "overall_confidence": 0.88
+  },
+  "gpt4_record": {
+    "catalog": {
+      "content_type": "research_paper",
+      "content_type_confidence": 0.85,
+      "ownership": "unclear",
+      "ownership_confidence": 0.5,
+      "ownership_rationale": "Looks like a research paper.",
+      "compliance_flags": ["unclear"],
+      "commercial_score": 50,
+      "commercial_action": "needs_consent"
+    },
+    "label": {
+      "structured_abstract": {
+        "problem": "Paper retrieval.",
+        "approach": "Machine learning.",
+        "findings": "Better than baselines.",
+        "limitations": "Unclear."
+      },
+      "methodology_named": [],
+      "methodology_other_freetext": "deep learning approach",
+      "novelty_claim": "A new method for paper retrieval.",
+      "evidence_type": "empirical",
+      "evidence_strength": "moderate",
+      "sample_size": null,
+      "claim_graph": [],
+      "citations": [],
+      "domain_tags": ["ml"]
+    },
+    "overall_confidence": 0.55
+  },
+  "expected_judgement": {
+    "winner": "lakeaudit",
+    "methodology_delta_minimum": 2,
+    "notes": "LakeAudit names specific techniques (contrastive_learning, fine_tuned_bert) and grounds compliance flags in the CC-BY license; GPT-4 record is generic across the board."
+  }
+}

@@ -1,0 +1,32 @@
+# Judge dimension rubrics. Editable between dry runs for tuning.
+# See docs/07-evaluation.md §Tuning loop.
+
+methodology_specificity:
+  5: "Names a specific technique like 'fine-tuned BERT on 12k labeled documents' or 'double-blind RCT with crossover design'"
+  3: "Names a broad family like 'machine learning' or 'survey'"
+  1: "Vague phrase like 'standard analysis' with no specifics"
+
+novelty_claim_accuracy:
+  5: "Novelty claim is verifiable in the source — quote or paraphrase grounded"
+  3: "Plausible but loosely supported by the source text"
+  1: "Not supported in the source / hallucinated"
+
+evidence_quality:
+  5: "Strong empirical support cited inline (table, figure, statistic)"
+  3: "Some support, hand-wave on key claims"
+  1: "Hand-wave throughout, no concrete evidence pointers"
+
+citation_completeness:
+  5: "All visible references parsed and classified with cited-work function"
+  3: "Major references parsed; some missing or unclassified"
+  1: "Sparse or missing citations"
+
+compliance_correctness:
+  5: "All applicable flags set, supported by document text; no spurious flags"
+  3: "Most flags correct; one missed or one over-flagged"
+  1: "Missed major compliance flag OR flagged something not supported by the text"
+
+ownership_defensibility:
+  5: "Ownership rationale cites specific document evidence (affiliation, funding statement, license)"
+  3: "Plausible ownership inference with weak evidence"
+  1: "Guess with no supporting evidence in the text"

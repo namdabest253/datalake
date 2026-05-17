@@ -1,0 +1,25 @@
+# LakeAudit runtime configuration.
+# Overridden by environment variables; overridden again by CLI flags.
+# See docs/05-inference-client.md and docs/08-ops-and-demo.md for field semantics.
+
+wafer_base_url: https://api.wafer.ai/v1
+wafer_loop_model: qwen-3.5-397b
+judge_model: qwen-3.5-strong
+openai_baseline_model: gpt-4-turbo
+
+wafer_concurrency: 64
+openai_concurrency: 8
+judge_concurrency: 4
+per_doc_concurrency: 8
+
+n_proposers: 3
+per_doc_budget_seconds: 30
+trace_sample_k: 10
+
+wafer_spend_ceiling_usd: 30
+
+paths:
+  sqlite_db: ./.lakeaudit/lakeaudit.db
+  logs_dir: ./.lakeaudit/logs
+  heuristics: ./lakeaudit/prompts/heuristics.yaml
+  judge_rubric: ./lakeaudit/eval/judge_rubric.yaml

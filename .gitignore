@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Virtual env
+.venv/
+venv/
+
+# uv (lockfile IS committed — this is an app, not a library)
+.uv/
+
+# LakeAudit runtime state
+.lakeaudit/
+*.db
+*.db-wal
+*.db-shm
+
+# Demo corpus — too large for git, downloaded via scripts/seed_corpus.py
+demo_corpus/arxiv/
+demo_corpus/nsf/
+
+# Secrets
+.env
+.env.local
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
