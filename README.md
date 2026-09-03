@@ -2,6 +2,8 @@
 
 **Agentic data-preparation system for universities.** Built for the Wafer "Best Inference" hackathon track.
 
+📄 **Devpost:** [devpost.com/software/datalake](https://devpost.com/software/datalake)
+
 Datalake ingests a folder of institutional documents (research papers, grant proposals) and runs a dense, multi-pass agent loop on [Wafer](https://wafer.ai) inference. Per document it produces:
 
 - a **catalog record** — what this is, who owns it, and what compliance applies (IRB/HIPAA, FERPA, export controls, embargoes, publisher exclusivity, licensing); and
